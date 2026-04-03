@@ -3,6 +3,8 @@
 This guide is for converting a Jazz variation (Three.js + Maximilian + engine.js)
 into an A-Frame component. Read it before touching any code.
 
+Reference example in this repo: [v01-aframe.html](./v01-aframe.html)
+
 ---
 
 ## The key rule: do not rewrite the Maximilian DSP

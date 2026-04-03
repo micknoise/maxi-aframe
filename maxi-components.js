@@ -899,4 +899,104 @@
       this.el.object3D.scale.set(this._smooth, this._smooth, this._smooth);
     }
   });
+
+  AFRAME.registerComponent('maxi-audio-deform', {
+    schema: {
+      amount: { type: 'number', default: 0.55 },
+      speed: { type: 'number', default: 1.1 },
+      bands: { type: 'int', default: 128 },
+      smoothing: { type: 'number', default: 0.82 }
+    },
+
+    init: function () {
+      this._mesh = null;
+      this._posAttr = null;
+      this._basePos = null;
+      this._phase = null;
+      this._smooth = null;
+      this._tmp = new THREE.Vector3();
+      this._bindMesh();
+    },
+
+    update: function () {
+      this._bindMesh();
+    },
+
+    _findMesh: function () {
+      var root = this.el.getObject3D('mesh');
+      if (!root) return null;
+      if (root.isMesh) return root;
+      var found = null;
+      root.traverse(function (obj) {
+        if (!found && obj && obj.isMesh) found = obj;
+      });
+      return found;
+    },
+
+    _bindMesh: function () {
+      var mesh = this._findMesh();
+      if (!mesh || !mesh.geometry || !mesh.geometry.attributes || !mesh.geometry.attributes.position) return;
+
+      if (mesh === this._mesh && this._posAttr) return;
+
+      this._mesh = mesh;
+      this._posAttr = mesh.geometry.attributes.position;
+      this._basePos = new Float32Array(this._posAttr.array);
+
+      var count = this._posAttr.count;
+      this._phase = new Float32Array(count);
+      this._smooth = new Float32Array(count);
+      for (var i = 0; i < count; i++) {
+        // Stable per-vertex phase offsets add movement without changing topology.
+        this._phase[i] = ((i * 0.61803398875) % 1) * Math.PI * 2;
+      }
+    },
+
+    tick: function (time) {
+      if (!this._posAttr || !this._basePos) {
+        this._bindMesh();
+        if (!this._posAttr) return;
+      }
+
+      var tex = window.jazzFFTTexture;
+      var binsData = tex && tex.image ? tex.image.data : null;
+      var bins = binsData ? Math.max(1, Math.floor(binsData.length / 4)) : 0;
+      var rms = Number(window.jazzRMS || 0);
+      var arr = this._posAttr.array;
+      var t = (time || 0) * 0.001 * this.data.speed;
+      var smoothA = Math.min(0.995, Math.max(0.0, this.data.smoothing));
+      var bands = Math.max(1, this.data.bands | 0);
+
+      for (var i = 0; i < this._posAttr.count; i++) {
+        var i3 = i * 3;
+        var bx = this._basePos[i3];
+        var by = this._basePos[i3 + 1];
+        var bz = this._basePos[i3 + 2];
+
+        this._tmp.set(bx, by, bz);
+        var len = this._tmp.length();
+        if (len < 1e-6) len = 1;
+        this._tmp.multiplyScalar(1 / len);
+
+        var band = i % bands;
+        var fft = 0;
+        if (bins > 0) {
+          var idx = Math.min(bins - 1, Math.floor((band / bands) * bins));
+          fft = binsData[idx * 4] / 255;
+        }
+
+        var wave = 0.5 + 0.5 * Math.sin(t + this._phase[i]);
+        var target = this.data.amount * (fft * 0.9 + rms * 1.2) * (0.35 + wave * 0.65);
+        var prev = this._smooth[i] || 0;
+        var disp = prev * smoothA + target * (1 - smoothA);
+        this._smooth[i] = disp;
+
+        arr[i3] = bx + this._tmp.x * disp;
+        arr[i3 + 1] = by + this._tmp.y * disp;
+        arr[i3 + 2] = bz + this._tmp.z * disp;
+      }
+
+      this._posAttr.needsUpdate = true;
+    }
+  });
 })();
