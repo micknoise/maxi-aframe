@@ -902,14 +902,15 @@
 
   AFRAME.registerComponent('maxi-audio-deform', {
     schema: {
-      amount: { type: 'number', default: 2.0 },
-      bands: { type: 'int', default: 128 },
-      attack: { type: 'number', default: 0.12 },
-      release: { type: 'number', default: 0.28 },
-      gate: { type: 'number', default: 0.04 },
-      fftPower: { type: 'number', default: 1.25 },
-      binSmoothing: { type: 'number', default: 0.35 },
-      rmsMix: { type: 'number', default: 0.0 }
+      amount: { type: 'number', default: 1.7 },
+      bands: { type: 'int', default: 96 },
+      attack: { type: 'number', default: 0.14 },
+      release: { type: 'number', default: 0.3 },
+      gate: { type: 'number', default: 0.015 },
+      fftPower: { type: 'number', default: 0.9 },
+      binSmoothing: { type: 'number', default: 0.55 },
+      autoGain: { type: 'number', default: 0.85 },
+      rmsMix: { type: 'number', default: 0.08 }
     },
 
     init: function () {
@@ -953,19 +954,12 @@
       this._vertexBand = new Uint16Array(count);
       this._dispSmooth = new Float32Array(count);
       this._bandEnv = new Float32Array(bands);
+      this._bandRaw = new Float32Array(bands);
 
       for (var i = 0; i < count; i++) {
-        var i3 = i * 3;
-        var bx = this._basePos[i3];
-        var by = this._basePos[i3 + 1];
-        var bz = this._basePos[i3 + 2];
-        // Deterministic mapping: each vertex follows a stable FFT band by azimuth.
-        var az = Math.atan2(bz, bx);
-        var u = (az + Math.PI) / (Math.PI * 2);
-        var band = Math.floor(u * bands);
-        if (band < 0) band = 0;
-        if (band > bands - 1) band = bands - 1;
-        this._vertexBand[i] = band;
+        // Distribute vertices across all bands to avoid single-strip artifacts.
+        var h = Math.imul(i + 1, 2654435761) >>> 0;
+        this._vertexBand[i] = h % bands;
       }
     },
 
@@ -985,11 +979,15 @@
       var gate = Math.min(0.9, Math.max(0.0, this.data.gate));
       var fftPower = Math.max(0.2, this.data.fftPower);
       var binSmooth = Math.min(0.95, Math.max(0.0, this.data.binSmoothing));
+      var autoGain = Math.min(1.0, Math.max(0.0, this.data.autoGain));
       var rmsMix = Math.min(1.0, Math.max(0.0, this.data.rmsMix));
       var rms = Number(window.jazzRMS || 0);
 
       if (!this._bandEnv || this._bandEnv.length !== bands) {
         this._bandEnv = new Float32Array(bands);
+      }
+      if (!this._bandRaw || this._bandRaw.length !== bands) {
+        this._bandRaw = new Float32Array(bands);
       }
       if (!this._vertexBand || this._vertexBand.length !== this._posAttr.count) {
         this._bindMesh();
@@ -997,6 +995,7 @@
       }
 
       // Build smoothed band envelopes directly from FFT texture.
+      var peakRaw = 0;
       for (var b = 0; b < bands; b++) {
         var idx = bins > 0 ? Math.min(bins - 1, Math.floor((b / bands) * bins)) : 0;
         var idxL = bins > 0 ? Math.max(0, idx - 1) : 0;
@@ -1007,15 +1006,26 @@
         var r = bins > 0 ? (binsData[idxR * 4] / 255) : 0;
         var raw = c * (1 - binSmooth) + ((l + r) * 0.5) * binSmooth;
 
-        if (raw <= gate) raw = 0;
-        else raw = (raw - gate) / (1 - gate);
+        if (raw > peakRaw) peakRaw = raw;
+        this._bandRaw[b] = raw;
+      }
 
-        raw = Math.pow(Math.max(0, raw), fftPower);
-        raw = raw * (1 - rmsMix) + Math.min(1, rms * 6) * rmsMix;
+      var invPeak = peakRaw > 1e-5 ? (1 / peakRaw) : 1;
+      for (var bb = 0; bb < bands; bb++) {
+        var rawBand = this._bandRaw[bb] || 0;
+        // Auto gain lifts quieter bins to reduce "single active spike" behavior.
+        rawBand = rawBand * ((1 - autoGain) + autoGain * invPeak);
+        if (rawBand > 1) rawBand = 1;
 
-        var prevBand = this._bandEnv[b] || 0;
-        var aBand = raw >= prevBand ? attackA : releaseA;
-        this._bandEnv[b] = prevBand * aBand + raw * (1 - aBand);
+        if (rawBand <= gate) rawBand = 0;
+        else rawBand = (rawBand - gate) / (1 - gate);
+
+        rawBand = Math.pow(Math.max(0, rawBand), fftPower);
+        rawBand = rawBand * (1 - rmsMix) + Math.min(1, rms * 6) * rmsMix;
+
+        var prevBand = this._bandEnv[bb] || 0;
+        var aBand = rawBand >= prevBand ? attackA : releaseA;
+        this._bandEnv[bb] = prevBand * aBand + rawBand * (1 - aBand);
       }
 
       for (var i = 0; i < this._posAttr.count; i++) {
