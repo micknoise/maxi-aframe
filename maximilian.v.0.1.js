@@ -8,6 +8,15 @@ var initAudioEngine = (origin = document.location.origin+"/libs")=>{
         const Engine = semaEngine.Engine
         const Learner = semaEngine.Learner
         var maxi = new Engine();
+        // Optional runtime overrides (set on window before initAudioEngine call):
+        // window.MAXI_TARGET_BUFFER_FRAMES, window.MAXI_TARGET_SAMPLE_RATE
+        var targetFrames = Number(window.MAXI_TARGET_BUFFER_FRAMES);
+        if (!Number.isFinite(targetFrames) || targetFrames < 128) targetFrames = 2048;
+        var targetRate = Number(window.MAXI_TARGET_SAMPLE_RATE);
+        if (!Number.isFinite(targetRate) || targetRate < 8000) targetRate = 48000;
+        maxi.desiredBufferSizeFrames = targetFrames;
+        maxi.desiredSampleRate = targetRate;
+        maxi.desiredLatencyHintSec = targetFrames / targetRate;
         var inputBufferIds = []
         //init Engine
         maxi.init(origin).then(()=>{

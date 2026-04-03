@@ -504,6 +504,13 @@ class Engine {
 
 		this.samplesLoaded = false;
     this.isHushed = false;
+    // Target 2048-frame equivalent output buffering by default.
+    // Note: AudioWorklet render quantum is fixed by the browser (typically 128),
+    // so this controls context/output latency rather than worklet block size.
+    this.desiredBufferSizeFrames = 2048;
+    this.desiredSampleRate = 48000;
+    this.desiredLatencyHintSec = this.desiredBufferSizeFrames / this.desiredSampleRate;
+    this.sharedBufferCapacityMultiplier = 128;
 	}
 
 	/**
@@ -759,11 +766,21 @@ class Engine {
         this.audioWorkletName = "maxi-processor";
         this.audioWorkletUrl = origin + "/" + this.audioWorkletName + ".js";
 
+        let latencyHint = this.desiredLatencyHintSec;
+        if (!Number.isFinite(latencyHint) || latencyHint <= 0) {
+          let targetFrames = Number(this.desiredBufferSizeFrames);
+          if (!Number.isFinite(targetFrames) || targetFrames < 128) targetFrames = 2048;
+          let targetRate = Number(this.desiredSampleRate);
+          if (!Number.isFinite(targetRate) || targetRate < 8000) targetRate = 48000;
+          latencyHint = targetFrames / targetRate;
+        }
+
         if (this.audioContext === undefined) {
           this.audioContext = new AudioContext({
             // create audio context with latency optimally configured for playback
-            latencyHint: "playback",
-            // latencyHint: 32/44100,  //this doesn't work below 512 on chrome (?)
+            latencyHint: latencyHint,
+            // latencyHint accepts seconds or category labels.
+            // Numeric value lets us target larger output buffering.
             // sampleRate: 48000
           });
         }
