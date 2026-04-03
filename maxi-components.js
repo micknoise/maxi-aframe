@@ -902,20 +902,23 @@
 
   AFRAME.registerComponent('maxi-audio-deform', {
     schema: {
-      amount: { type: 'number', default: 1.2 },
-      speed: { type: 'number', default: 1.35 },
+      amount: { type: 'number', default: 2.0 },
       bands: { type: 'int', default: 128 },
-      smoothing: { type: 'number', default: 0.76 },
-      attack: { type: 'number', default: 0.18 },
-      release: { type: 'number', default: 0.34 }
+      attack: { type: 'number', default: 0.12 },
+      release: { type: 'number', default: 0.28 },
+      gate: { type: 'number', default: 0.04 },
+      fftPower: { type: 'number', default: 1.25 },
+      binSmoothing: { type: 'number', default: 0.35 },
+      rmsMix: { type: 'number', default: 0.0 }
     },
 
     init: function () {
       this._mesh = null;
       this._posAttr = null;
       this._basePos = null;
-      this._phase = null;
-      this._smooth = null;
+      this._vertexBand = null;
+      this._dispSmooth = null;
+      this._bandEnv = null;
       this._tmp = new THREE.Vector3();
       this._bindMesh();
     },
@@ -946,15 +949,27 @@
       this._basePos = new Float32Array(this._posAttr.array);
 
       var count = this._posAttr.count;
-      this._phase = new Float32Array(count);
-      this._smooth = new Float32Array(count);
+      var bands = Math.max(1, this.data.bands | 0);
+      this._vertexBand = new Uint16Array(count);
+      this._dispSmooth = new Float32Array(count);
+      this._bandEnv = new Float32Array(bands);
+
       for (var i = 0; i < count; i++) {
-        // Stable per-vertex phase offsets add movement without changing topology.
-        this._phase[i] = ((i * 0.61803398875) % 1) * Math.PI * 2;
+        var i3 = i * 3;
+        var bx = this._basePos[i3];
+        var by = this._basePos[i3 + 1];
+        var bz = this._basePos[i3 + 2];
+        // Deterministic mapping: each vertex follows a stable FFT band by azimuth.
+        var az = Math.atan2(bz, bx);
+        var u = (az + Math.PI) / (Math.PI * 2);
+        var band = Math.floor(u * bands);
+        if (band < 0) band = 0;
+        if (band > bands - 1) band = bands - 1;
+        this._vertexBand[i] = band;
       }
     },
 
-    tick: function (time) {
+    tick: function () {
       if (!this._posAttr || !this._basePos) {
         this._bindMesh();
         if (!this._posAttr) return;
@@ -963,13 +978,45 @@
       var tex = window.jazzFFTTexture;
       var binsData = tex && tex.image ? tex.image.data : null;
       var bins = binsData ? Math.max(1, Math.floor(binsData.length / 4)) : 0;
-      var rms = Number(window.jazzRMS || 0);
       var arr = this._posAttr.array;
-      var t = (time || 0) * 0.001 * this.data.speed;
-      var legacy = Math.min(0.995, Math.max(0.0, this.data.smoothing));
+      var bands = Math.max(1, this.data.bands | 0);
       var attackA = Math.min(0.995, Math.max(0.0, this.data.attack));
       var releaseA = Math.min(0.995, Math.max(0.0, this.data.release));
-      var bands = Math.max(1, this.data.bands | 0);
+      var gate = Math.min(0.9, Math.max(0.0, this.data.gate));
+      var fftPower = Math.max(0.2, this.data.fftPower);
+      var binSmooth = Math.min(0.95, Math.max(0.0, this.data.binSmoothing));
+      var rmsMix = Math.min(1.0, Math.max(0.0, this.data.rmsMix));
+      var rms = Number(window.jazzRMS || 0);
+
+      if (!this._bandEnv || this._bandEnv.length !== bands) {
+        this._bandEnv = new Float32Array(bands);
+      }
+      if (!this._vertexBand || this._vertexBand.length !== this._posAttr.count) {
+        this._bindMesh();
+        if (!this._vertexBand) return;
+      }
+
+      // Build smoothed band envelopes directly from FFT texture.
+      for (var b = 0; b < bands; b++) {
+        var idx = bins > 0 ? Math.min(bins - 1, Math.floor((b / bands) * bins)) : 0;
+        var idxL = bins > 0 ? Math.max(0, idx - 1) : 0;
+        var idxR = bins > 0 ? Math.min(bins - 1, idx + 1) : 0;
+
+        var c = bins > 0 ? (binsData[idx * 4] / 255) : 0;
+        var l = bins > 0 ? (binsData[idxL * 4] / 255) : 0;
+        var r = bins > 0 ? (binsData[idxR * 4] / 255) : 0;
+        var raw = c * (1 - binSmooth) + ((l + r) * 0.5) * binSmooth;
+
+        if (raw <= gate) raw = 0;
+        else raw = (raw - gate) / (1 - gate);
+
+        raw = Math.pow(Math.max(0, raw), fftPower);
+        raw = raw * (1 - rmsMix) + Math.min(1, rms * 6) * rmsMix;
+
+        var prevBand = this._bandEnv[b] || 0;
+        var aBand = raw >= prevBand ? attackA : releaseA;
+        this._bandEnv[b] = prevBand * aBand + raw * (1 - aBand);
+      }
 
       for (var i = 0; i < this._posAttr.count; i++) {
         var i3 = i * 3;
@@ -982,21 +1029,12 @@
         if (len < 1e-6) len = 1;
         this._tmp.multiplyScalar(1 / len);
 
-        var band = i % bands;
-        var fft = 0;
-        if (bins > 0) {
-          var idx = Math.min(bins - 1, Math.floor((band / bands) * bins));
-          fft = binsData[idx * 4] / 255;
-        }
-
-        var wave = 0.5 + 0.5 * Math.sin(t + this._phase[i]);
-        // Stronger drive so deformation stays obvious even on quieter patches.
-        var energy = 0.08 + fft * 1.9 + rms * 4.2;
-        var target = this.data.amount * energy * (0.35 + wave * 0.95);
-        var prev = this._smooth[i] || 0;
-        var a = target >= prev ? Math.min(legacy, attackA) : Math.min(legacy, releaseA);
+        var band = this._vertexBand[i] || 0;
+        var target = this.data.amount * (this._bandEnv[band] || 0);
+        var prev = this._dispSmooth[i] || 0;
+        var a = target >= prev ? attackA : releaseA;
         var disp = prev * a + target * (1 - a);
-        this._smooth[i] = disp;
+        this._dispSmooth[i] = disp;
 
         arr[i3] = bx + this._tmp.x * disp;
         arr[i3 + 1] = by + this._tmp.y * disp;
