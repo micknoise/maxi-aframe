@@ -566,7 +566,10 @@ class Engine {
 	 * @param blocksize
 	 */
 	createSharedBuffer(channelId, ttype, blocksize) {
-		let sab = RingBuffer.getStorageForCapacity(32 * blocksize, Float64Array);
+    let multiplier = Number(this.sharedBufferCapacityMultiplier);
+    if (!Number.isFinite(multiplier) || multiplier < 32) multiplier = 128;
+    let capacity = Math.max(32, Math.floor(multiplier * blocksize));
+    let sab = RingBuffer.getStorageForCapacity(capacity, Float64Array);
 		let ringbuf = new RingBuffer(sab, Float64Array);
 
 		this.audioWorkletNode.port.postMessage({
