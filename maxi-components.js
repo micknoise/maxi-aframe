@@ -901,30 +901,33 @@
   });
 
   AFRAME.registerComponent('maxi-audio-deform', {
+    // Rows are auto-detected from the geometry (unique Y-value clusters = rows).
+    // FFT bins are evenly mapped: row 0 → bin 0, row N-1 → bin (bins-1).
+    // Works on any A-Frame geometry — spheres, planes, cylinders, custom meshes.
     schema: {
-      amount: { type: 'number', default: 1.7 },
-      bands: { type: 'int', default: 96 },
-      attack: { type: 'number', default: 0.14 },
-      release: { type: 'number', default: 0.3 },
-      gate: { type: 'number', default: 0.015 },
-      fftPower: { type: 'number', default: 0.9 },
-      binSmoothing: { type: 'number', default: 0.55 },
-      autoGain: { type: 'number', default: 0.85 },
-      rmsMix: { type: 'number', default: 0.08 }
+      amount:       { type: 'number', default: 1.7 },
+      attack:       { type: 'number', default: 0.14 },
+      release:      { type: 'number', default: 0.3 },
+      gate:         { type: 'number', default: 0.015 },
+      fftPower:     { type: 'number', default: 0.9 },
+      binSmoothing: { type: 'number', default: 0.55 }
     },
 
     init: function () {
-      this._mesh = null;
-      this._posAttr = null;
-      this._basePos = null;
-      this._vertexBand = null;
-      this._dispSmooth = null;
-      this._bandEnv = null;
-      this._tmp = new THREE.Vector3();
+      this._mesh     = null;
+      this._posAttr  = null;
+      this._normAttr = null;
+      this._basePos  = null;
+      this._baseNorm = null;
+      this._vertexRow = null;
+      this._numRows  = 0;
+      this._rowEnv   = null;
       this._bindMesh();
     },
 
     update: function () {
+      // Force re-detect if component params change (amount etc. don't need rebind,
+      // but a safe no-op since _bindMesh guards on mesh identity).
       this._bindMesh();
     },
 
@@ -933,122 +936,120 @@
       if (!root) return null;
       if (root.isMesh) return root;
       var found = null;
-      root.traverse(function (obj) {
-        if (!found && obj && obj.isMesh) found = obj;
-      });
+      root.traverse(function (obj) { if (!found && obj.isMesh) found = obj; });
       return found;
     },
 
     _bindMesh: function () {
       var mesh = this._findMesh();
-      if (!mesh || !mesh.geometry || !mesh.geometry.attributes || !mesh.geometry.attributes.position) return;
-
+      if (!mesh || !mesh.geometry || !mesh.geometry.attributes ||
+          !mesh.geometry.attributes.position) return;
       if (mesh === this._mesh && this._posAttr) return;
 
-      this._mesh = mesh;
-      this._posAttr = mesh.geometry.attributes.position;
-      this._basePos = new Float32Array(this._posAttr.array);
+      this._mesh     = mesh;
+      this._posAttr  = mesh.geometry.attributes.position;
+      this._normAttr = mesh.geometry.attributes.normal || null;
+      this._basePos  = new Float32Array(this._posAttr.array);
+      this._baseNorm = this._normAttr ? new Float32Array(this._normAttr.array) : null;
 
       var count = this._posAttr.count;
-      var bands = Math.max(1, this.data.bands | 0);
-      this._vertexBand = new Uint16Array(count);
-      this._dispSmooth = new Float32Array(count);
-      this._bandEnv = new Float32Array(bands);
-      this._bandRaw = new Float32Array(bands);
 
+      // --- Detect rows by clustering unique Y values from the geometry ---
+      // Each unique Y level = one row; FFT bins map evenly across all rows.
+      var yMin = Infinity, yMax = -Infinity;
       for (var i = 0; i < count; i++) {
-        // Distribute vertices across all bands to avoid single-strip artifacts.
-        var h = Math.imul(i + 1, 2654435761) >>> 0;
-        this._vertexBand[i] = h % bands;
+        var y = this._basePos[i * 3 + 1];
+        if (y < yMin) yMin = y;
+        if (y > yMax) yMax = y;
+      }
+
+      var eps = (yMax - yMin) * 0.001 + 1e-6;
+
+      // Collect and sort Y values, then de-dup within epsilon.
+      var ySorted = new Float32Array(count);
+      for (var j = 0; j < count; j++) ySorted[j] = this._basePos[j * 3 + 1];
+      ySorted = Array.from(ySorted).sort(function (a, b) { return a - b; });
+
+      var rowCenters = [ySorted[0]];
+      for (var k = 1; k < ySorted.length; k++) {
+        if (ySorted[k] - rowCenters[rowCenters.length - 1] > eps) {
+          rowCenters.push(ySorted[k]);
+        }
+      }
+
+      var numRows = rowCenters.length;
+      this._numRows = numRows;
+      this._rowEnv  = new Float32Array(numRows);
+
+      // Assign each vertex its row by nearest Y center (binary search).
+      this._vertexRow = new Uint16Array(count);
+      for (var vi = 0; vi < count; vi++) {
+        var vy = this._basePos[vi * 3 + 1];
+        var lo = 0, hi = numRows - 1;
+        while (lo < hi) {
+          var mid = (lo + hi) >> 1;
+          if (rowCenters[mid] < vy) lo = mid + 1; else hi = mid;
+        }
+        if (lo > 0 && Math.abs(rowCenters[lo - 1] - vy) < Math.abs(rowCenters[lo] - vy)) lo--;
+        this._vertexRow[vi] = lo;
       }
     },
 
     tick: function () {
-      if (!this._posAttr || !this._basePos) {
+      if (!this._posAttr || !this._numRows) {
         this._bindMesh();
-        if (!this._posAttr) return;
+        if (!this._posAttr || !this._numRows) return;
       }
 
-      var tex = window.jazzFFTTexture;
+      var tex      = window.jazzFFTTexture;
       var binsData = tex && tex.image ? tex.image.data : null;
-      var bins = binsData ? Math.max(1, Math.floor(binsData.length / 4)) : 0;
-      var arr = this._posAttr.array;
-      var bands = Math.max(1, this.data.bands | 0);
-      var attackA = Math.min(0.995, Math.max(0.0, this.data.attack));
+      var bins     = binsData ? Math.max(1, Math.floor(binsData.length / 4)) : 0;
+      var numRows  = this._numRows;
+      var attackA  = Math.min(0.995, Math.max(0.0, this.data.attack));
       var releaseA = Math.min(0.995, Math.max(0.0, this.data.release));
-      var gate = Math.min(0.9, Math.max(0.0, this.data.gate));
-      var fftPower = Math.max(0.2, this.data.fftPower);
-      var binSmooth = Math.min(0.95, Math.max(0.0, this.data.binSmoothing));
-      var autoGain = Math.min(1.0, Math.max(0.0, this.data.autoGain));
-      var rmsMix = Math.min(1.0, Math.max(0.0, this.data.rmsMix));
-      var rms = Number(window.jazzRMS || 0);
+      var gate     = Math.min(0.9,   Math.max(0.0, this.data.gate));
+      var fftPwr   = Math.max(0.1,   this.data.fftPower);
+      var bSmooth  = Math.min(0.95,  Math.max(0.0, this.data.binSmoothing));
 
-      if (!this._bandEnv || this._bandEnv.length !== bands) {
-        this._bandEnv = new Float32Array(bands);
-      }
-      if (!this._bandRaw || this._bandRaw.length !== bands) {
-        this._bandRaw = new Float32Array(bands);
-      }
-      if (!this._vertexBand || this._vertexBand.length !== this._posAttr.count) {
-        this._bindMesh();
-        if (!this._vertexBand) return;
-      }
+      // Update per-row envelope from FFT — one bin per row, evenly spread.
+      for (var row = 0; row < numRows; row++) {
+        var bin = bins > 0 ? Math.min(bins - 1, Math.floor((row / numRows) * bins)) : 0;
+        var raw = 0;
+        if (bins > 0) {
+          var cv = binsData[bin * 4] / 255;
+          var lv = bin > 0            ? binsData[(bin - 1) * 4] / 255 : cv;
+          var rv = bin < bins - 1     ? binsData[(bin + 1) * 4] / 255 : cv;
+          raw = cv * (1 - bSmooth) + ((lv + rv) * 0.5) * bSmooth;
+        }
+        if (raw <= gate) raw = 0;
+        else raw = (raw - gate) / (1 - gate);
+        raw = Math.pow(Math.max(0, raw), fftPwr);
 
-      // Build smoothed band envelopes directly from FFT texture.
-      var peakRaw = 0;
-      for (var b = 0; b < bands; b++) {
-        var idx = bins > 0 ? Math.min(bins - 1, Math.floor((b / bands) * bins)) : 0;
-        var idxL = bins > 0 ? Math.max(0, idx - 1) : 0;
-        var idxR = bins > 0 ? Math.min(bins - 1, idx + 1) : 0;
-
-        var c = bins > 0 ? (binsData[idx * 4] / 255) : 0;
-        var l = bins > 0 ? (binsData[idxL * 4] / 255) : 0;
-        var r = bins > 0 ? (binsData[idxR * 4] / 255) : 0;
-        var raw = c * (1 - binSmooth) + ((l + r) * 0.5) * binSmooth;
-
-        if (raw > peakRaw) peakRaw = raw;
-        this._bandRaw[b] = raw;
+        var prev = this._rowEnv[row] || 0;
+        var a    = raw >= prev ? attackA : releaseA;
+        this._rowEnv[row] = prev * a + raw * (1 - a);
       }
 
-      var invPeak = peakRaw > 1e-5 ? (1 / peakRaw) : 1;
-      for (var bb = 0; bb < bands; bb++) {
-        var rawBand = this._bandRaw[bb] || 0;
-        // Auto gain lifts quieter bins to reduce "single active spike" behavior.
-        rawBand = rawBand * ((1 - autoGain) + autoGain * invPeak);
-        if (rawBand > 1) rawBand = 1;
+      // Apply displacement along vertex normal (or normalised position fallback).
+      var arr   = this._posAttr.array;
+      var count = this._posAttr.count;
+      var amt   = this.data.amount;
 
-        if (rawBand <= gate) rawBand = 0;
-        else rawBand = (rawBand - gate) / (1 - gate);
-
-        rawBand = Math.pow(Math.max(0, rawBand), fftPower);
-        rawBand = rawBand * (1 - rmsMix) + Math.min(1, rms * 6) * rmsMix;
-
-        var prevBand = this._bandEnv[bb] || 0;
-        var aBand = rawBand >= prevBand ? attackA : releaseA;
-        this._bandEnv[bb] = prevBand * aBand + rawBand * (1 - aBand);
-      }
-
-      for (var i = 0; i < this._posAttr.count; i++) {
+      for (var i = 0; i < count; i++) {
         var i3 = i * 3;
-        var bx = this._basePos[i3];
-        var by = this._basePos[i3 + 1];
-        var bz = this._basePos[i3 + 2];
-
-        this._tmp.set(bx, by, bz);
-        var len = this._tmp.length();
-        if (len < 1e-6) len = 1;
-        this._tmp.multiplyScalar(1 / len);
-
-        var band = this._vertexBand[i] || 0;
-        var target = this.data.amount * (this._bandEnv[band] || 0);
-        var prev = this._dispSmooth[i] || 0;
-        var a = target >= prev ? attackA : releaseA;
-        var disp = prev * a + target * (1 - a);
-        this._dispSmooth[i] = disp;
-
-        arr[i3] = bx + this._tmp.x * disp;
-        arr[i3 + 1] = by + this._tmp.y * disp;
-        arr[i3 + 2] = bz + this._tmp.z * disp;
+        var bx = this._basePos[i3], by = this._basePos[i3 + 1], bz = this._basePos[i3 + 2];
+        var nx, ny, nz;
+        if (this._baseNorm) {
+          nx = this._baseNorm[i3]; ny = this._baseNorm[i3 + 1]; nz = this._baseNorm[i3 + 2];
+        } else {
+          var len = Math.sqrt(bx * bx + by * by + bz * bz);
+          if (len < 1e-6) { nx = 0; ny = 1; nz = 0; }
+          else { nx = bx / len; ny = by / len; nz = bz / len; }
+        }
+        var disp = amt * (this._rowEnv[this._vertexRow[i]] || 0);
+        arr[i3]     = bx + nx * disp;
+        arr[i3 + 1] = by + ny * disp;
+        arr[i3 + 2] = bz + nz * disp;
       }
 
       this._posAttr.needsUpdate = true;
