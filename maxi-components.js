@@ -915,12 +915,139 @@
     }
   });
 
+  // ─── maxi-fft: standalone FFT analyser with selectable input ───
+  // src: CSS selector for <audio>/<video> element, or empty to use the maxi-patch worklet output.
+  // Publishes this.fftTexture (THREE.DataTexture) for other components to read.
+  AFRAME.registerComponent('maxi-fft', {
+    schema: {
+      src: { type: 'selector', default: null }
+    },
+
+    init: function () {
+      var FFT_BINS = 256;
+      this._FFT_BINS = FFT_BINS;
+      this._analyser = null;
+      this._floatFreqData = null;
+      this._linArray = new Float32Array(FFT_BINS);
+      this._fftData = new Uint8Array(FFT_BINS * 4);
+      this.fftTexture = new THREE.DataTexture(this._fftData, FFT_BINS, 1, THREE.RGBAFormat);
+      this.fftTexture.magFilter = THREE.NearestFilter;
+      this.fftTexture.minFilter = THREE.NearestFilter;
+      this.fftTexture.needsUpdate = true;
+      this._sourceNode = null;
+      this._connected = false;
+      this._connectAudio();
+    },
+
+    update: function (oldData) {
+      if (oldData.src !== this.data.src) {
+        this._disconnect();
+        this._connectAudio();
+      }
+    },
+
+    _getAudioContext: function () {
+      var sys = this.el.sceneEl.systems['maxi-patch'];
+      if (sys && sys._maxi && sys._maxi.audioWorkletNode) {
+        return sys._maxi.audioWorkletNode.context;
+      }
+      return null;
+    },
+
+    _connectAudio: function () {
+      var ctx = this._getAudioContext();
+      if (!ctx) return;
+
+      var analyser = ctx.createAnalyser();
+      analyser.fftSize = this._FFT_BINS * 2;
+      this._analyser = analyser;
+      this._floatFreqData = new Float32Array(analyser.frequencyBinCount);
+
+      var srcEl = this.data.src;
+      if (srcEl && (srcEl.tagName === 'AUDIO' || srcEl.tagName === 'VIDEO')) {
+        // Connect to a media element.
+        // createMediaElementSource can only be called once per element,
+        // so reuse if already created.
+        if (!srcEl._maxiMediaSource) {
+          srcEl._maxiMediaSource = ctx.createMediaElementSource(srcEl);
+        }
+        srcEl._maxiMediaSource.connect(analyser);
+        // Also connect to destination so it still plays audibly
+        srcEl._maxiMediaSource.connect(ctx.destination);
+        this._sourceNode = srcEl._maxiMediaSource;
+      } else {
+        // Default: connect to the maxi-patch worklet output
+        var sys = this.el.sceneEl.systems['maxi-patch'];
+        if (sys && sys._maxi && sys._maxi.audioWorkletNode) {
+          sys._maxi.audioWorkletNode.connect(analyser);
+        }
+        this._sourceNode = null;
+      }
+      this._connected = true;
+    },
+
+    _disconnect: function () {
+      if (this._analyser) {
+        try { this._analyser.disconnect(); } catch (e) {}
+      }
+      this._analyser = null;
+      this._connected = false;
+    },
+
+    tick: function () {
+      if (!this._connected) this._connectAudio();
+      if (!this._analyser) return;
+
+      var FFT_BINS = this._FFT_BINS;
+      this._analyser.getFloatFrequencyData(this._floatFreqData);
+
+      var peak = 0;
+      for (var i = 0; i < FFT_BINS; i++) {
+        var db = this._floatFreqData[i];
+        var lin = (isFinite(db) && db > -200) ? Math.pow(10, db / 20) : 0;
+        this._linArray[i] = lin;
+        if (lin > peak) peak = lin;
+      }
+
+      if (peak > 0.000001) {
+        var logMin = Math.log2(20);
+        var logMax = Math.log2(8000);
+        var inv = 1 / peak;
+        var sampleRate = this._analyser.context.sampleRate || 48000;
+        for (var k = 0; k < FFT_BINS; k++) {
+          var t = k / (FFT_BINS - 1);
+          var freq = Math.pow(2, logMin + t * (logMax - logMin));
+          var binIdx = Math.min(Math.floor(freq * FFT_BINS * 2 / sampleRate), FFT_BINS - 1);
+          var val = Math.min(255, Math.floor(this._linArray[binIdx] * inv * 255));
+          this._fftData[k * 4] = val;
+          this._fftData[k * 4 + 1] = val;
+          this._fftData[k * 4 + 2] = val;
+          this._fftData[k * 4 + 3] = 255;
+        }
+      } else {
+        for (var z = 0; z < FFT_BINS; z++) {
+          this._fftData[z * 4] = 0;
+          this._fftData[z * 4 + 1] = 0;
+          this._fftData[z * 4 + 2] = 0;
+          this._fftData[z * 4 + 3] = 255;
+        }
+      }
+      this.fftTexture.needsUpdate = true;
+    },
+
+    remove: function () {
+      this._disconnect();
+    }
+  });
+
   AFRAME.registerComponent('maxi-audio-deform', {
     // CPU vertex deformation using azimuthal angle for FFT mapping.
     // FFT bin 0 → 0°, FFT bin N-1 → 180°, then mirrors 180°→360°.
     // Works on any geometry. One mirror = sine sweep visible in both directions.
+    // fft: selector for an entity with maxi-fft component (optional, falls back to global).
     schema: {
-      amount: { type: 'number', default: 1.7 }
+      amount: { type: 'number', default: 1.7 },
+      fft:    { type: 'selector', default: null }
     },
 
     init: function () {
@@ -982,7 +1109,13 @@
         if (!this._bound) return;
       }
 
-      var tex      = window.jazzFFTTexture;
+      // Resolve FFT texture: from maxi-fft selector, or fall back to global
+      var tex = null;
+      var fftEl = this.data.fft;
+      if (fftEl && fftEl.components && fftEl.components['maxi-fft']) {
+        tex = fftEl.components['maxi-fft'].fftTexture;
+      }
+      if (!tex) tex = window.jazzFFTTexture;
       var binsData = tex && tex.image ? tex.image.data : null;
       var bins     = binsData ? Math.floor(binsData.length / 4) : 0;
 
