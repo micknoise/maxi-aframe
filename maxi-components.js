@@ -1050,7 +1050,7 @@
         var wrapped = uvCoord * 2;
         var frac = wrapped - Math.floor(wrapped);
         var mirrored = 1 - Math.abs(frac * 2 - 1); // 0..1..0
-        var binIdx = bins > 0 ? Math.min(bins - 1, Math.floor(mirrored * (bins - 1))) : 0;
+        var binIdx = bins > 0 ? Math.min(bins - 1, Math.floor(mirrored * bins)) : 0;
 
         var disp = amt * (this._binEnv[binIdx] || 0);
         arr[i3]     = bx + nx * disp;
