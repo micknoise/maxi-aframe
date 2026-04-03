@@ -916,8 +916,8 @@
   });
 
   AFRAME.registerComponent('maxi-audio-deform', {
-    // Deforms vertices along normals using FFT sampled by UV coordinate,
-    // matching the reference jazz-sphere behaviour from v01-aframe.
+    // Shader-based deformation path (like jazz-aframe): sample FFT in vertex shader
+    // and displace along normals on the GPU.
     schema: {
       amount:       { type: 'number', default: 1.7 },
       fftUV:        { type: 'number', default: 0.0 },
@@ -929,136 +929,124 @@
     },
 
     init: function () {
-      this._mesh     = null;
-      this._posAttr  = null;
-      this._normAttr = null;
-      this._uvAttr   = null;
-      this._basePos  = null;
-      this._baseNorm = null;
-      this._binEnv   = null;
-      this._bindMesh();
+      this._patched = [];
+      this._fallbackFFT = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
+      this._fallbackFFT.magFilter = THREE.NearestFilter;
+      this._fallbackFFT.minFilter = THREE.NearestFilter;
+      this._fallbackFFT.needsUpdate = true;
+      this._onObject3DSet = this._patchMeshes.bind(this);
+      this.el.addEventListener('object3dset', this._onObject3DSet);
+      this._patchMeshes();
     },
 
     update: function () {
-      // Force re-detect if component params change (amount etc. don't need rebind,
-      // but a safe no-op since _bindMesh guards on mesh identity).
-      this._bindMesh();
+      this._updateUniforms();
     },
 
-    _findMesh: function () {
+    _patchMeshes: function () {
       var root = this.el.getObject3D('mesh');
-      if (!root) return null;
-      if (root.isMesh) return root;
-      var found = null;
-      root.traverse(function (obj) { if (!found && obj.isMesh) found = obj; });
-      return found;
+      if (!root) return;
+      var self = this;
+      root.traverse(function (obj) {
+        if (!obj.isMesh || !obj.material) return;
+        if (Array.isArray(obj.material)) {
+          for (var i = 0; i < obj.material.length; i++) self._patchMaterial(obj, i);
+        } else {
+          self._patchMaterial(obj, -1);
+        }
+      });
+      this._updateUniforms();
     },
 
-    _bindMesh: function () {
-      var mesh = this._findMesh();
-      if (!mesh || !mesh.geometry || !mesh.geometry.attributes ||
-          !mesh.geometry.attributes.position) return;
-      if (mesh === this._mesh && this._posAttr) return;
+    _patchMaterial: function (mesh, index) {
+      var original = index >= 0 ? mesh.material[index] : mesh.material;
+      if (!original || original.userData._maxiAudioDeformPatched) return;
 
-      this._mesh     = mesh;
-      this._posAttr  = mesh.geometry.attributes.position;
-      this._normAttr = mesh.geometry.attributes.normal || null;
-      this._uvAttr   = mesh.geometry.attributes.uv || null;
-      this._basePos  = new Float32Array(this._posAttr.array);
-      this._baseNorm = this._normAttr ? new Float32Array(this._normAttr.array) : null;
+      var patched = original.clone();
+      patched.userData._maxiAudioDeformPatched = true;
+
+      var priorOnBeforeCompile = patched.onBeforeCompile;
+      patched.onBeforeCompile = function (shader, renderer) {
+        if (priorOnBeforeCompile) priorOnBeforeCompile.call(this, shader, renderer);
+
+        shader.uniforms.uFFT = { value: window.jazzFFTTexture || this.userData._maxiFFT || null };
+        shader.uniforms.uDeform = { value: this.userData._maxiDeform || 0.0 };
+        shader.uniforms.uFFTUV = { value: this.userData._maxiFFTUV || 0.0 };
+
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', [
+            '#include <common>',
+            'uniform sampler2D uFFT;',
+            'uniform float uDeform;',
+            'uniform float uFFTUV;'
+          ].join('\n'))
+          .replace('#include <begin_vertex>', [
+            'vec3 transformed = vec3(position);',
+            'float uvCoord = 0.0;',
+            '#ifdef USE_UV',
+            '  uvCoord = mix(uv.x, uv.y, clamp(uFFTUV, 0.0, 1.0));',
+            '#else',
+            '  uvCoord = fract((position.x + position.y + position.z) * 0.01);',
+            '#endif',
+            'float wrapped = fract(uvCoord * 2.0);',
+            'float mirrored = 1.0 - abs(wrapped * 2.0 - 1.0);',
+            'float mag = texture2D(uFFT, vec2(mirrored, 0.5)).r;',
+            'transformed += normalize(objectNormal) * mag * uDeform;'
+          ].join('\n'));
+
+        this.userData._maxiShader = shader;
+      };
+
+      var prevKey = patched.customProgramCacheKey;
+      patched.customProgramCacheKey = function () {
+        var base = prevKey ? prevKey.call(this) : '';
+        return base + '|maxi-audio-deform-vs-1';
+      };
+
+      patched.userData._maxiFFT = this._fallbackFFT;
+      patched.userData._maxiDeform = this.data.amount;
+      patched.userData._maxiFFTUV = this.data.fftUV;
+      patched.needsUpdate = true;
+
+      this._patched.push({ mesh: mesh, index: index, original: original, patched: patched });
+      if (index >= 0) mesh.material[index] = patched;
+      else mesh.material = patched;
+    },
+
+    _updateUniforms: function () {
+      var fftTex = window.jazzFFTTexture || this._fallbackFFT;
+      var deform = this.data.amount;
+      var fftUV = Math.min(1, Math.max(0, this.data.fftUV));
+
+      for (var i = 0; i < this._patched.length; i++) {
+        var mat = this._patched[i].patched;
+        if (!mat) continue;
+        mat.userData._maxiFFT = fftTex;
+        mat.userData._maxiDeform = deform;
+        mat.userData._maxiFFTUV = fftUV;
+
+        var shader = mat.userData._maxiShader;
+        if (shader && shader.uniforms) {
+          shader.uniforms.uFFT.value = fftTex;
+          shader.uniforms.uDeform.value = deform;
+          shader.uniforms.uFFTUV.value = fftUV;
+        }
+      }
     },
 
     tick: function () {
-      if (!this._posAttr) {
-        this._bindMesh();
-        if (!this._posAttr) return;
+      this._updateUniforms();
+    },
+
+    remove: function () {
+      if (this._onObject3DSet) this.el.removeEventListener('object3dset', this._onObject3DSet);
+      for (var i = 0; i < this._patched.length; i++) {
+        var p = this._patched[i];
+        if (!p.mesh) continue;
+        if (p.index >= 0 && Array.isArray(p.mesh.material)) p.mesh.material[p.index] = p.original;
+        else p.mesh.material = p.original;
       }
-
-      var tex      = window.jazzFFTTexture;
-      var binsData = tex && tex.image ? tex.image.data : null;
-      var bins     = binsData ? Math.max(1, Math.floor(binsData.length / 4)) : 0;
-      var attackA  = Math.min(0.995, Math.max(0.0, this.data.attack));
-      var releaseA = Math.min(0.995, Math.max(0.0, this.data.release));
-      var gate     = Math.min(0.9,   Math.max(0.0, this.data.gate));
-      var fftPwr   = Math.max(0.1,   this.data.fftPower);
-      var bSmooth  = Math.min(0.95,  Math.max(0.0, this.data.binSmoothing));
-      var fftUVMix = Math.min(1, Math.max(0, this.data.fftUV));
-
-      // No FFT data: clear deformation immediately so geometry cannot stay stuck.
-      if (bins <= 0) {
-        if (this._binEnv) this._binEnv.fill(0);
-        var clearArr = this._posAttr.array;
-        for (var ci = 0; ci < clearArr.length; ci++) clearArr[ci] = this._basePos[ci];
-        this._posAttr.needsUpdate = true;
-        return;
-      }
-
-      if (!this._binEnv || this._binEnv.length !== bins) {
-        this._binEnv = new Float32Array(bins || 1);
-      }
-
-      // Smooth per-bin FFT values, then sample those bins per-vertex via UV.
-      for (var bin = 0; bin < bins; bin++) {
-        var raw = 0;
-        if (bins > 0) {
-          var cv = binsData[bin * 4] / 255;
-          var lv = bin > 0        ? binsData[(bin - 1) * 4] / 255 : cv;
-          var rv = bin < bins - 1 ? binsData[(bin + 1) * 4] / 255 : cv;
-          raw = cv * (1 - bSmooth) + ((lv + rv) * 0.5) * bSmooth;
-        }
-        if (raw <= gate) raw = 0;
-        else raw = (raw - gate) / (1 - gate);
-        raw = Math.pow(Math.max(0, raw), fftPwr);
-
-        var prev = this._binEnv[bin] || 0;
-        var a    = raw >= prev ? attackA : releaseA;
-        var env = prev * a + raw * (1 - a);
-        this._binEnv[bin] = env < 0.0005 ? 0 : env;
-      }
-
-      // Apply displacement along vertex normal (or normalised position fallback),
-      // sampling FFT using UV mapping like the reference jazz-sphere shader.
-      var arr   = this._posAttr.array;
-      var count = this._posAttr.count;
-      var amt   = this.data.amount;
-      var uvArr = this._uvAttr ? this._uvAttr.array : null;
-
-      for (var i = 0; i < count; i++) {
-        var i3 = i * 3;
-        var bx = this._basePos[i3], by = this._basePos[i3 + 1], bz = this._basePos[i3 + 2];
-        var nx, ny, nz;
-        if (this._baseNorm) {
-          nx = this._baseNorm[i3]; ny = this._baseNorm[i3 + 1]; nz = this._baseNorm[i3 + 2];
-        } else {
-          var len = Math.sqrt(bx * bx + by * by + bz * bz);
-          if (len < 1e-6) { nx = 0; ny = 1; nz = 0; }
-          else { nx = bx / len; ny = by / len; nz = bz / len; }
-        }
-
-        var uvCoord = count > 1 ? (i / (count - 1)) : 0;
-        if (uvArr) {
-          var i2 = i * 2;
-          var ux = uvArr[i2];
-          var uy = uvArr[i2 + 1];
-          uvCoord = ux * (1 - fftUVMix) + uy * fftUVMix;
-        }
-        if (!isFinite(uvCoord)) uvCoord = 0;
-        if (uvCoord < 0) uvCoord = 0;
-        else if (uvCoord > 1) uvCoord = 1;
-
-        // Mirror the spectrum and wrap it twice around the geometry.
-        var wrapped = uvCoord * 2;
-        var frac = wrapped - Math.floor(wrapped);
-        var mirrored = 1 - Math.abs(frac * 2 - 1); // 0..1..0
-        var binIdx = bins > 0 ? Math.min(bins - 1, Math.floor(mirrored * bins)) : 0;
-
-        var disp = amt * (this._binEnv[binIdx] || 0);
-        arr[i3]     = bx + nx * disp;
-        arr[i3 + 1] = by + ny * disp;
-        arr[i3 + 2] = bz + nz * disp;
-      }
-
-      this._posAttr.needsUpdate = true;
+      this._patched.length = 0;
     }
   });
 })();
