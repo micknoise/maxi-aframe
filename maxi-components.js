@@ -441,6 +441,44 @@
     }
   }));
 
+  AFRAME.registerComponent('maxi-svf', makeComp({
+    schema: {
+      input: { type: 'string', default: '0' },
+      cutoff: { type: 'string', default: '800' },
+      resonance: { type: 'string', default: '1' },
+      lp: { type: 'string', default: '1' },
+      hp: { type: 'string', default: '0' },
+      bp: { type: 'string', default: '0' },
+      notch: { type: 'string', default: '0' }
+    },
+    getDeps: function () {
+      var deps = [];
+      ['input', 'cutoff', 'resonance', 'lp', 'hp', 'bp', 'notch'].forEach(function (k) {
+        if (isRef(this.data[k])) {
+          var id = getRefId(this.el.sceneEl, this.data[k]);
+          if (id) deps.push(id);
+        }
+      }, this);
+      return deps;
+    },
+    genDecls: function () {
+      return 'var ' + nv(this.el.id) + ' = new Maximilian.maxiSVF();';
+    },
+    genPlay: function () {
+      var o = nv(this.el.id);
+      var out = no(this.el.id);
+      var cutExpr = rp(this.el.sceneEl, this.data.cutoff);
+      var resExpr = rp(this.el.sceneEl, this.data.resonance);
+      return [
+        'var ' + o + '_cut = Math.max(20, Math.min(20000, ' + cutExpr + '));',
+        'var ' + o + '_res = Math.max(0.0001, ' + resExpr + ');',
+        o + '.setCutoff(' + o + '_cut);',
+        o + '.setResonance(' + o + '_res);',
+        'var ' + out + ' = ' + o + '.play(' + rp(this.el.sceneEl, this.data.input) + ', ' + rp(this.el.sceneEl, this.data.lp) + ', ' + rp(this.el.sceneEl, this.data.hp) + ', ' + rp(this.el.sceneEl, this.data.bp) + ', ' + rp(this.el.sceneEl, this.data.notch) + ');'
+      ];
+    }
+  }));
+
   AFRAME.registerComponent('maxi-env', makeComp({
     schema: {
       type: { type: 'string', default: 'adsr' },
