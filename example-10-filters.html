@@ -20,11 +20,12 @@
   </div>
   <a-scene maxi-patch="output: #out" renderer="antialias: true">
     <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
-    <a-entity id="src" maxi-osc="type: sawn; freq: 100"></a-entity>
-    <a-entity id="lfo" maxi-osc="type: sinewave; freq: 0.25"></a-entity>
-    <a-entity id="cut" maxi-map="type: linlin; input: #lfo; inMin: -1; inMax: 1; outMin: 100; outMax: 5000"></a-entity>
-    <a-entity id="filt" maxi-svf="input: #src; cutoff: #cut; resonance: 1.2; lp: 1; hp: 0; bp: 0; notch: 0"></a-entity>
-    <a-entity id="out" maxi-gain="input: #filt; gain: 0.2"></a-entity>
+    <a-entity id="src" maxi-osc="type: saw; freq: 110"></a-entity>
+    <a-entity id="lfo" maxi-osc="type: sinewave; freq: 0.09"></a-entity>
+    <a-entity id="cut" maxi-map="type: linlin; input: #lfo; inMin: -1; inMax: 1; outMin: 250; outMax: 2200"></a-entity>
+    <a-entity id="filt" maxi-svf="input: #src; cutoff: #cut; resonance: 0.85; lp: 1; hp: 0; bp: 0; notch: 0"></a-entity>
+    <a-entity id="mix" maxi-add="a: #src; b: #filt; mix: 0.8"></a-entity>
+    <a-entity id="out" maxi-gain="input: #mix; gain: 0.16"></a-entity>
     <a-cylinder position="0 1 -2.4" radius="0.6" height="1.5" color="#f59e0b" animation="property: rotation; to: 0 360 0; loop: true; dur: 3000"></a-cylinder>
     <a-sky color="#15110f"></a-sky>
   </a-scene>

@@ -146,6 +146,7 @@
       this._compileTimer = 0;
       this._compileError = null;
       this._pendingDepsWarned = false;
+      this._lastCode = '';
 
       this._fftData = new Uint8Array(FFT_BINS * 4);
       this.fftTexture = new THREE.DataTexture(this._fftData, FFT_BINS, 1, THREE.RGBAFormat);
@@ -316,6 +317,7 @@
       if (!this._engineReady || !this._maxi) return;
       try {
         var code = this._buildDSP();
+        if (code === this._lastCode) return;
         var wasPlaying = this._playing;
         var ctx = this._maxi.audioWorkletNode && this._maxi.audioWorkletNode.context;
 
@@ -325,6 +327,7 @@
           this._maxi.play();
         }
 
+        this._lastCode = code;
         this._compileError = null;
         this._pendingDepsWarned = false;
         console.info('maxi-patch: compiled OK');
