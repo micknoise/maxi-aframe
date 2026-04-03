@@ -145,6 +145,7 @@
       this._playing = false;
       this._compileTimer = 0;
       this._compileError = null;
+      this._pendingDepsWarned = false;
 
       this._fftData = new Uint8Array(FFT_BINS * 4);
       this.fftTexture = new THREE.DataTexture(this._fftData, FFT_BINS, 1, THREE.RGBAFormat);
@@ -325,8 +326,20 @@
         }
 
         this._compileError = null;
+        this._pendingDepsWarned = false;
         console.info('maxi-patch: compiled OK');
       } catch (err) {
+        var msg = String((err && err.message) ? err.message : err);
+        if (msg.indexOf('Missing dependency #') !== -1) {
+          // A-Frame init order can trigger compile before all components register.
+          // Treat this as transient and retry shortly.
+          if (!this._pendingDepsWarned) {
+            console.warn('maxi-patch: waiting for remaining nodes before compile');
+            this._pendingDepsWarned = true;
+          }
+          this.requestCompile();
+          return;
+        }
         this._compileError = err;
         console.error('maxi-patch compile failed:', err.message || err);
       }
