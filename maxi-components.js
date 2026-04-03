@@ -254,6 +254,8 @@
           .then(function () {
             self._loadedSamples[name] = true;
             delete self._loadingSamples[name];
+            // Re-run setup so maxiSample binds the now-ready sample buffer.
+            self._lastCode = '';
             self.requestCompile();
           })
           .catch(function (err) {
@@ -601,16 +603,35 @@
     genDecls: function () {
       return 'var ' + nv(this.el.id) + ' = new Maximilian.maxiEnv();';
     },
+    genSetup: function () {
+      var o = nv(this.el.id);
+      var attack = Math.max(0, asNum(this.data.attack, 10));
+      var decay = Math.max(1, asNum(this.data.decay, 100));
+      var sustain = clamp01(asNum(this.data.sustain, 0.8));
+      var release = Math.max(1, asNum(this.data.release, 300));
+
+      if (String(this.data.type).toLowerCase() === 'ar') {
+        // AR approximation in this binding: very short decay and full sustain.
+        decay = 1;
+        sustain = 1;
+      }
+
+      return [
+        o + '.setAttack(' + attack + ');',
+        o + '.setDecay(' + decay + ');',
+        o + '.setSustain(' + sustain + ');',
+        o + '.setRelease(' + release + ');'
+      ];
+    },
     genPlay: function () {
       var out = no(this.el.id);
       var o = nv(this.el.id);
       var input = rp(this.el.sceneEl, this.data.input);
       var trig = rp(this.el.sceneEl, this.data.trigger);
-      if (this.data.type === 'ar') {
-        return ['var ' + out + ' = ' + o + '.ar(' + input + ', ' + rp(this.el.sceneEl, this.data.attack) + ', ' + rp(this.el.sceneEl, this.data.release) + ', ' + trig + ');'];
-      }
-      var sustain = clamp01(asNum(this.data.sustain, 0.8));
-      return ['var ' + out + ' = ' + o + '.adsr(' + input + ', ' + rp(this.el.sceneEl, this.data.attack) + ', ' + rp(this.el.sceneEl, this.data.decay) + ', ' + sustain + ', ' + rp(this.el.sceneEl, this.data.release) + ', ' + rp(this.el.sceneEl, this.data.holdtime) + ', ' + trig + ');'];
+      return [
+        'var ' + o + '_env = ' + o + '.adsr(1, ' + trig + ');',
+        'var ' + out + ' = (' + input + ') * ' + o + '_env;'
+      ];
     }
   }));
 
