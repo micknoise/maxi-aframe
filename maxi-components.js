@@ -289,15 +289,9 @@
       window.jazzRMS = this._rmsSmooth;
 
       if (peak > 0.000001) {
-        var logMin = Math.log2(20);
-        var logMax = Math.log2(8000);
         var inv = 1 / peak;
-        var sampleRate = this._audioCtx ? this._audioCtx.sampleRate : 48000;
         for (var k = 0; k < FFT_BINS; k++) {
-          var t = k / (FFT_BINS - 1);
-          var freq = Math.pow(2, logMin + t * (logMax - logMin));
-          var binIdx = Math.min(Math.floor(freq * FFT_BINS * 2 / sampleRate), FFT_BINS - 1);
-          var val = Math.min(255, Math.floor(this._linArray[binIdx] * inv * 255));
+          var val = Math.min(255, Math.floor(this._linArray[k] * inv * 255));
           this._fftData[k * 4] = val;
           this._fftData[k * 4 + 1] = val;
           this._fftData[k * 4 + 2] = val;
@@ -936,7 +930,6 @@
       this._basePos  = null;
       this._baseNorm = null;
       this._binEnv   = null;
-      this._binBase  = null;
       this._bindMesh();
     },
 
@@ -985,11 +978,17 @@
       var bSmooth  = Math.min(0.95,  Math.max(0.0, this.data.binSmoothing));
       var fftUVMix = Math.min(1, Math.max(0, this.data.fftUV));
 
+      // No FFT data: clear deformation immediately so geometry cannot stay stuck.
+      if (bins <= 0) {
+        if (this._binEnv) this._binEnv.fill(0);
+        var clearArr = this._posAttr.array;
+        for (var ci = 0; ci < clearArr.length; ci++) clearArr[ci] = this._basePos[ci];
+        this._posAttr.needsUpdate = true;
+        return;
+      }
+
       if (!this._binEnv || this._binEnv.length !== bins) {
         this._binEnv = new Float32Array(bins || 1);
-      }
-      if (!this._binBase || this._binBase.length !== bins) {
-        this._binBase = new Float32Array(bins || 1);
       }
 
       // Smooth per-bin FFT values, then sample those bins per-vertex via UV.
@@ -1005,16 +1004,10 @@
         else raw = (raw - gate) / (1 - gate);
         raw = Math.pow(Math.max(0, raw), fftPwr);
 
-        // Remove persistent per-bin floor so low-frequency bins do not get stuck.
-        var basePrev = this._binBase[bin] || 0;
-        var baseA = raw > basePrev ? 0.03 : 0.002;
-        var base = basePrev * (1 - baseA) + raw * baseA;
-        this._binBase[bin] = base;
-        raw = Math.max(0, raw - base * 0.9);
-
         var prev = this._binEnv[bin] || 0;
         var a    = raw >= prev ? attackA : releaseA;
-        this._binEnv[bin] = prev * a + raw * (1 - a);
+        var env = prev * a + raw * (1 - a);
+        this._binEnv[bin] = env < 0.0005 ? 0 : env;
       }
 
       // Apply displacement along vertex normal (or normalised position fallback),
