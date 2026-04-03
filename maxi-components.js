@@ -880,4 +880,23 @@
       ];
     }
   }));
+
+  AFRAME.registerComponent('maxi-rms-scale', {
+    schema: {
+      min: { type: 'number', default: 0.9 },
+      max: { type: 'number', default: 1.6 },
+      smoothing: { type: 'number', default: 0.88 }
+    },
+    init: function () {
+      this._smooth = this.data.min;
+      this.el.object3D.scale.set(this.data.min, this.data.min, this.data.min);
+    },
+    tick: function () {
+      var rms = Number(window.jazzRMS || 0);
+      var target = this.data.min + Math.min(1, Math.max(0, rms * 8)) * (this.data.max - this.data.min);
+      var a = Math.min(0.99, Math.max(0.0, this.data.smoothing));
+      this._smooth = this._smooth * a + target * (1 - a);
+      this.el.object3D.scale.set(this._smooth, this._smooth, this._smooth);
+    }
+  });
 })();

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>11. Mixing</title>
+  <script src="./enable-threads.js"></script>
+  <script src="./maximilian.v.0.1.js"></script>
+  <script src="./aframe.min.js"></script>
+  <script src="./maxi-components.js?v=20260403d"></script>
+  <style>
+    body { margin: 0; background: #0d1219; color: #e6edf3; font-family: Menlo, Monaco, Consolas, monospace; }
+    #ui { position: fixed; left: 12px; top: 12px; z-index: 1000; background: rgba(0,0,0,0.65); border: 1px solid #2f3a46; border-radius: 8px; padding: 10px; max-width: 560px; }
+    a { color: #7dd3fc; }
+    .meta { font-size: 12px; opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="playButton">loading...</button>
+    <div>11. Mixing</div>
+    <div class="meta">Layered oscillator mixing.</div>
+    <div class="meta"><a href="./tutorial-catalog.html">All Tutorials</a> | <a href="./index.html">Home</a></div>
+  </div>
+
+  <a-scene id="scene" maxi-patch="output: #out" renderer="antialias: true">
+    <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
+    <a-sphere position="0 1.4 -3" radius="0.9" color="#9ece6a" maxi-rms-scale="min: 0.85; max: 1.9; smoothing: 0.9" animation="property: rotation; to: 360 360 0; loop: true; dur: 7000"></a-sphere>
+    <a-plane position="0 0 -3" rotation="-90 0 0" width="8" height="8" color="#1f2937"></a-plane>
+    <a-sky color="#0d1219"></a-sky>
+
+    <a-entity id="o1" maxi-osc="type: sinewave; freq: 110"></a-entity>
+    <a-entity id="o2" maxi-osc="type: triangle; freq: 220"></a-entity>
+    <a-entity id="o3" maxi-osc="type: square; freq: 330"></a-entity>
+    <a-entity id="m12" maxi-add="a: #o1; b: #o2; mix: 0.5"></a-entity>
+    <a-entity id="mix" maxi-add="a: #m12; b: #o3; mix: 0.33"></a-entity>
+    <a-entity id="out" maxi-gain="input: #mix; gain: 0.14"></a-entity>
+  </a-scene>
+</body>
+</html>
