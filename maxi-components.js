@@ -433,10 +433,11 @@
       var method = ({ lores: 'lores', hires: 'hires', lopass: 'lopass', hipass: 'hipass' })[this.data.type] || 'lores';
       var out = no(this.el.id);
       var o = nv(this.el.id);
+      var cutoff = 'Math.max(20, ' + rp(this.el.sceneEl, this.data.cutoff) + ')';
       if (method === 'lores' || method === 'hires') {
-        return ['var ' + out + ' = ' + o + '.' + method + '(' + rp(this.el.sceneEl, this.data.input) + ', ' + rp(this.el.sceneEl, this.data.cutoff) + ', ' + rp(this.el.sceneEl, this.data.resonance) + ');'];
+        return ['var ' + out + ' = ' + o + '.' + method + '(' + rp(this.el.sceneEl, this.data.input) + ', ' + cutoff + ', ' + rp(this.el.sceneEl, this.data.resonance) + ');'];
       }
-      return ['var ' + out + ' = ' + o + '.' + method + '(' + rp(this.el.sceneEl, this.data.input) + ', ' + rp(this.el.sceneEl, this.data.cutoff) + ');'];
+      return ['var ' + out + ' = ' + o + '.' + method + '(' + rp(this.el.sceneEl, this.data.input) + ', ' + cutoff + ');'];
     }
   }));
 
