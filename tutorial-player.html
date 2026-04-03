@@ -6,7 +6,7 @@
   <script src="./enable-threads.js"></script>
   <script src="./maximilian.v.0.1.js"></script>
   <script src="./aframe.min.js"></script>
-  <script src="./maxi-components.js?v=20260403b"></script>
+  <script src="./maxi-components.js?v=20260403c"></script>
   <style>
     body { margin: 0; background: #0d1219; color: #e6edf3; font-family: Menlo, Monaco, Consolas, monospace; }
     #ui {
@@ -143,10 +143,11 @@
         { id: 'mix', comp: 'maxi-add', val: 'a: #src; b: #dl; mix: 0.9' },
         { id: 'out', comp: 'maxi-gain', val: 'input: #mix; gain: 0.3' }
       ]},
-      17: { title: '17. Compressor (adapted)', desc: 'Soft clipping as dynamics proxy.', nodes: [
-        { id: 'src', comp: 'maxi-blep', val: 'type: square; freq: 120; scale: 1.2' },
-        { id: 'drv', comp: 'maxi-distortion', val: 'type: softclip; input: #src; amount: 1' },
-        { id: 'out', comp: 'maxi-gain', val: 'input: #drv; gain: 0.2' }
+      17: { title: '17. Compressor (adapted)', desc: 'Beat sample through soft-clip compression proxy.', nodes: [
+        { id: 'sam', comp: 'maxi-sample', val: 'name: beat; url: ' + SAMPLE_URL + '; mode: loop; speed: 1; gain: 1' },
+        { id: 'drv', comp: 'maxi-distortion', val: 'type: softclip; input: #sam; amount: 1' },
+        { id: 'mix', comp: 'maxi-add', val: 'a: #sam; b: #drv; mix: 0.7' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #mix; gain: 0.22' }
       ]},
       18: { title: '18. DrumMachine (adapted)', desc: 'Clock-triggered sample one-shots.', nodes: [
         { id: 'clk', comp: 'maxi-clock', val: 'tempo: 110; ticksPerBeat: 4' },
@@ -159,10 +160,10 @@
         { id: 'env', comp: 'maxi-env', val: 'type: ar; input: #src; trigger: #clk; attack: 25; release: 200' },
         { id: 'out', comp: 'maxi-gain', val: 'input: #env; gain: 0.25' }
       ]},
-      20: { title: '20. FFT example (adapted)', desc: 'Audio source with spectrum-ready scene.', nodes: [
-        { id: 'src', comp: 'maxi-osc', val: 'type: noise; freq: 1' },
-        { id: 'f', comp: 'maxi-filter', val: 'type: lopass; input: #src; cutoff: 1200' },
-        { id: 'out', comp: 'maxi-gain', val: 'input: #f; gain: 0.08' }
+      20: { title: '20. FFT example (adapted)', desc: 'Stable sample-based source for spectrum analysis.', nodes: [
+        { id: 'sam', comp: 'maxi-sample', val: 'name: beat; url: ' + SAMPLE_URL + '; mode: loop; speed: 1; gain: 1' },
+        { id: 'f', comp: 'maxi-filter', val: 'type: lopass; input: #sam; cutoff: 1800' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #f; gain: 0.18' }
       ]},
       21: { title: '21. Recording (adapted)', desc: 'Recording tutorial placeholder with active source.', nodes: [
         { id: 'src', comp: 'maxi-osc', val: 'type: sinewave; freq: 246' },
