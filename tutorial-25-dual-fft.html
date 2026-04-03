@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>25. Dual FFT</title>
+  <script src="./enable-threads.js"></script>
+  <script src="./maximilian.v.0.1.js"></script>
+  <script src="./aframe.min.js"></script>
+  <script src="./maxi-components.js?v=20260403d"></script>
+  <style>
+    body { margin: 0; background: #0d1219; color: #e6edf3; font-family: Menlo, Monaco, Consolas, monospace; }
+    #ui { position: fixed; left: 12px; top: 12px; z-index: 1000; background: rgba(0,0,0,0.65); border: 1px solid #2f3a46; border-radius: 8px; padding: 10px; max-width: 560px; }
+    a { color: #7dd3fc; }
+    .meta { font-size: 12px; opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="playButton">loading...</button>
+    <div>25. Dual FFT</div>
+    <div class="meta">Two geometries driven by two separate FFT sources: a patch FM voice and an audio element.</div>
+    <div class="meta"><a href="./tutorial-catalog.html">All Tutorials</a> | <a href="./index.html">Home</a></div>
+  </div>
+
+  <!-- Second audio source: replace src with your own file -->
+  <audio id="track" src="./audio/loop.wav" loop></audio>
+
+  <a-scene id="scene" maxi-patch="output: #out" renderer="antialias: true">
+    <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
+
+    <!-- FFT analyser 1: analyses the maxi-patch worklet output (FM voice) -->
+    <a-entity id="fft1" maxi-fft></a-entity>
+    <!-- FFT analyser 2: analyses the <audio> element -->
+    <a-entity id="fft2" maxi-fft="src: #track"></a-entity>
+
+    <!-- Sphere driven by the patch FM voice -->
+    <a-sphere position="-1.5 1.4 -3" radius="0.7" segments-width="36" segments-height="22" color="#9ece6a" material="wireframe: true; opacity: 0.95" maxi-audio-deform="amount: 1.9; fft: #fft1" animation="property: rotation; to: 360 360 0; loop: true; dur: 7000"></a-sphere>
+
+    <!-- Torus driven by the audio element -->
+    <a-torus position="1.5 1.4 -3" radius="0.55" radius-tubular="0.2" segments-radial="24" segments-tubular="36" color="#f7768e" material="wireframe: true; opacity: 0.95" maxi-audio-deform="amount: 1.4; fft: #fft2" animation="property: rotation; to: 0 360 360; loop: true; dur: 9000"></a-torus>
+
+    <a-plane position="0 0 -3" rotation="-90 0 0" width="8" height="8" color="#1f2937"></a-plane>
+    <a-sky color="#0d1219"></a-sky>
+
+    <!-- FM voice: slow modulator driving a carrier -->
+    <a-entity id="mod" maxi-osc="type: sinewave; freq: 2; scale: 3000; offset: 3000"></a-entity>
+    <a-entity id="car" maxi-osc="type: sinewave; freq: #mod"></a-entity>
+    <a-entity id="out" maxi-gain="input: #car; gain: 0.2"></a-entity>
+  </a-scene>
+
+  <script>
+    // Start the <audio> element when the play button is clicked
+    var playBtn = document.getElementById('playButton');
+    var track = document.getElementById('track');
+    var audioStarted = false;
+    playBtn.addEventListener('click', function () {
+      if (!audioStarted) {
+        track.play().catch(function () {});
+        audioStarted = true;
+      } else {
+        if (track.paused) track.play(); else track.pause();
+      }
+    });
+  </script>
+</body>
+</html>
