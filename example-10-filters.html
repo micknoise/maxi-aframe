@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Example 10 - Filters</title>
+  <script src="./enable-threads.js"></script>
+  <script src="./maximilian.v.0.1.js"></script>
+  <script src="./aframe.min.js"></script>
+  <script src="./maxi-components.js"></script>
+  <style>
+    body { margin: 0; background: #15110f; color: #e8ecf1; font-family: monospace; }
+    #ui { position: fixed; left: 12px; top: 12px; z-index: 1000; background: rgba(0,0,0,0.6); padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="playButton">loading...</button>
+    <div>Converted from 10.Filters (adapted)</div>
+    <a href="./index.html">Back</a>
+  </div>
+  <a-scene maxi-patch="output: #out" renderer="antialias: true">
+    <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
+    <a-entity id="src" maxi-osc="type: sawn; freq: 100"></a-entity>
+    <a-entity id="lfo" maxi-osc="type: sinewave; freq: 0.25"></a-entity>
+    <a-entity id="cut" maxi-map="type: linlin; input: #lfo; inMin: -1; inMax: 1; outMin: 100; outMax: 1500"></a-entity>
+    <a-entity id="filt" maxi-filter="type: lores; input: #src; cutoff: #cut; resonance: 10"></a-entity>
+    <a-entity id="out" maxi-gain="input: #filt; gain: 0.15"></a-entity>
+    <a-cylinder position="0 1 -2.4" radius="0.6" height="1.5" color="#f59e0b" animation="property: rotation; to: 0 360 0; loop: true; dur: 3000"></a-cylinder>
+    <a-sky color="#15110f"></a-sky>
+  </a-scene>
+</body>
+</html>

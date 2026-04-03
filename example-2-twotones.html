@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Example 2 - TwoTones</title>
+  <script src="./enable-threads.js"></script>
+  <script src="./maximilian.v.0.1.js"></script>
+  <script src="./aframe.min.js"></script>
+  <script src="./maxi-components.js"></script>
+  <style>
+    body { margin: 0; background: #141018; color: #e8ecf1; font-family: monospace; }
+    #ui { position: fixed; left: 12px; top: 12px; z-index: 1000; background: rgba(0,0,0,0.6); padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="playButton">loading...</button>
+    <div>Converted from 2.TwoTones (440 + 441 Hz)</div>
+    <a href="./index.html">Back</a>
+  </div>
+  <a-scene maxi-patch="output: #out" renderer="antialias: true">
+    <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
+    <a-entity id="a" maxi-osc="type: sinewave; freq: 440"></a-entity>
+    <a-entity id="b" maxi-osc="type: sinewave; freq: 441"></a-entity>
+    <a-entity id="sum" maxi-add="a: #a; b: #b; mix: 0.5"></a-entity>
+    <a-entity id="out" maxi-gain="input: #sum; gain: 0.2"></a-entity>
+    <a-sphere position="0 1.4 -3" radius="0.9" color="#fb7185" animation="property: scale; dir: alternate; to: 1.2 1.2 1.2; loop: true; dur: 700"></a-sphere>
+    <a-sky color="#141018"></a-sky>
+  </a-scene>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Example 24 - Flanger</title>
+  <script src="./enable-threads.js"></script>
+  <script src="./maximilian.v.0.1.js"></script>
+  <script src="./aframe.min.js"></script>
+  <script src="./maxi-components.js"></script>
+  <style>
+    body { margin: 0; background: #16101a; color: #e8ecf1; font-family: monospace; }
+    #ui { position: fixed; left: 12px; top: 12px; z-index: 1000; background: rgba(0,0,0,0.6); padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="playButton">loading...</button>
+    <div>Converted from 24.Flanger (adapted to oscillator source)</div>
+    <a href="./index.html">Back</a>
+  </div>
+  <a-scene maxi-patch="output: #out" renderer="antialias: true">
+    <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
+    <a-entity id="src" maxi-osc="type: saw; freq: 110"></a-entity>
+    <a-entity id="flg" maxi-flanger="input: #src; delayLength: 30; lfoSpeed: 0.5; lfoDepth: 0.8; mix: 0.85"></a-entity>
+    <a-entity id="out" maxi-gain="input: #flg; gain: 0.15"></a-entity>
+    <a-octahedron position="0 1.2 -2.7" radius="0.9" color="#a78bfa" animation="property: rotation; to: 0 360 0; loop: true; dur: 2500"></a-octahedron>
+    <a-sky color="#16101a"></a-sky>
+  </a-scene>
+</body>
+</html>
