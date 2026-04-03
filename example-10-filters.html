@@ -20,7 +20,7 @@
   </div>
   <a-scene maxi-patch="output: #out" renderer="antialias: true">
     <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
-    <a-entity id="src" maxi-osc="type: saw; freq: 110"></a-entity>
+    <a-entity id="src" maxi-blep="type: saw; freq: 110"></a-entity>
     <a-entity id="lfo" maxi-osc="type: sinewave; freq: 0.09"></a-entity>
     <a-entity id="cut" maxi-map="type: linlin; input: #lfo; inMin: -1; inMax: 1; outMin: 250; outMax: 2200"></a-entity>
     <a-entity id="filt" maxi-svf="input: #src; cutoff: #cut; resonance: 0.85; lp: 1; hp: 0; bp: 0; notch: 0"></a-entity>

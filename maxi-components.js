@@ -400,6 +400,52 @@
     }
   }));
 
+  AFRAME.registerComponent('maxi-blep', makeComp({
+    schema: {
+      type: { type: 'string', default: 'saw' },
+      freq: { type: 'string', default: '440' },
+      duty: { type: 'string', default: '0.5' },
+      scale: { type: 'string', default: '1' },
+      offset: { type: 'string', default: '0' }
+    },
+    getDeps: function () {
+      var deps = [];
+      ['freq', 'duty', 'scale', 'offset'].forEach(function (k) {
+        if (isRef(this.data[k])) {
+          var id = getRefId(this.el.sceneEl, this.data[k]);
+          if (id) deps.push(id);
+        }
+      }, this);
+      return deps;
+    },
+    genDecls: function () {
+      return 'var ' + nv(this.el.id) + ' = new Maximilian.maxiPolyBLEP();';
+    },
+    genSetup: function () {
+      var waveforms = {
+        sin: 0,
+        cosine: 1,
+        triangle: 2,
+        square: 3,
+        rect: 4,
+        saw: 5,
+        ramp: 6
+      };
+      var wf = waveforms[this.data.type] !== undefined ? waveforms[this.data.type] : 5;
+      return [
+        nv(this.el.id) + '.setWaveform(' + wf + ');'
+      ];
+    },
+    genPlay: function () {
+      var o = nv(this.el.id);
+      var out = no(this.el.id);
+      return [
+        o + '.setPulseWidth(' + rp(this.el.sceneEl, this.data.duty) + ');',
+        'var ' + out + ' = (' + o + '.play(' + rp(this.el.sceneEl, this.data.freq) + ')) * ' + rp(this.el.sceneEl, this.data.scale) + ' + ' + rp(this.el.sceneEl, this.data.offset) + ';'
+      ];
+    }
+  }));
+
   AFRAME.registerComponent('maxi-clock', makeComp({
     schema: {
       tempo: { type: 'number', default: 120 },
