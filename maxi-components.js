@@ -289,9 +289,15 @@
       window.jazzRMS = this._rmsSmooth;
 
       if (peak > 0.000001) {
+        var logMin = Math.log2(20);
+        var logMax = Math.log2(8000);
         var inv = 1 / peak;
+        var sampleRate = this._audioCtx ? this._audioCtx.sampleRate : 48000;
         for (var k = 0; k < FFT_BINS; k++) {
-          var val = Math.min(255, Math.floor(this._linArray[k] * inv * 255));
+          var t = k / (FFT_BINS - 1);
+          var freq = Math.pow(2, logMin + t * (logMax - logMin));
+          var binIdx = Math.min(Math.floor(freq * FFT_BINS * 2 / sampleRate), FFT_BINS - 1);
+          var val = Math.min(255, Math.floor(this._linArray[binIdx] * inv * 255));
           this._fftData[k * 4] = val;
           this._fftData[k * 4 + 1] = val;
           this._fftData[k * 4 + 2] = val;
@@ -1039,7 +1045,12 @@
         if (!isFinite(uvCoord)) uvCoord = 0;
         if (uvCoord < 0) uvCoord = 0;
         else if (uvCoord > 1) uvCoord = 1;
-        var binIdx = bins > 0 ? Math.min(bins - 1, Math.floor(uvCoord * (bins - 1))) : 0;
+
+        // Mirror the spectrum and wrap it twice around the geometry.
+        var wrapped = uvCoord * 2;
+        var frac = wrapped - Math.floor(wrapped);
+        var mirrored = 1 - Math.abs(frac * 2 - 1); // 0..1..0
+        var binIdx = bins > 0 ? Math.min(bins - 1, Math.floor(mirrored * (bins - 1))) : 0;
 
         var disp = amt * (this._binEnv[binIdx] || 0);
         arr[i3]     = bx + nx * disp;
