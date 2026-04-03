@@ -905,7 +905,9 @@
       amount: { type: 'number', default: 1.2 },
       speed: { type: 'number', default: 1.35 },
       bands: { type: 'int', default: 128 },
-      smoothing: { type: 'number', default: 0.76 }
+      smoothing: { type: 'number', default: 0.76 },
+      attack: { type: 'number', default: 0.18 },
+      release: { type: 'number', default: 0.34 }
     },
 
     init: function () {
@@ -964,7 +966,9 @@
       var rms = Number(window.jazzRMS || 0);
       var arr = this._posAttr.array;
       var t = (time || 0) * 0.001 * this.data.speed;
-      var smoothA = Math.min(0.995, Math.max(0.0, this.data.smoothing));
+      var legacy = Math.min(0.995, Math.max(0.0, this.data.smoothing));
+      var attackA = Math.min(0.995, Math.max(0.0, this.data.attack));
+      var releaseA = Math.min(0.995, Math.max(0.0, this.data.release));
       var bands = Math.max(1, this.data.bands | 0);
 
       for (var i = 0; i < this._posAttr.count; i++) {
@@ -990,7 +994,8 @@
         var energy = 0.08 + fft * 1.9 + rms * 4.2;
         var target = this.data.amount * energy * (0.35 + wave * 0.95);
         var prev = this._smooth[i] || 0;
-        var disp = prev * smoothA + target * (1 - smoothA);
+        var a = target >= prev ? Math.min(legacy, attackA) : Math.min(legacy, releaseA);
+        var disp = prev * a + target * (1 - a);
         this._smooth[i] = disp;
 
         arr[i3] = bx + this._tmp.x * disp;
