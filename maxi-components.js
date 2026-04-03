@@ -105,8 +105,10 @@
       schema: def.schema,
       init: function () {
         registerNode(this);
+        if (def.onInit) def.onInit.call(this);
       },
       update: function () {
+        if (def.onUpdate) def.onUpdate.call(this);
         var sceneEl = this.el && this.el.sceneEl;
         if (sceneEl && sceneEl.systems && sceneEl.systems['maxi-patch']) {
           sceneEl.systems['maxi-patch'].requestCompile();
@@ -147,6 +149,9 @@
       this._compileError = null;
       this._pendingDepsWarned = false;
       this._lastCode = '';
+      this._loadedSamples = {};
+      this._loadingSamples = {};
+      this._sampleQueue = {};
 
       this._fftData = new Uint8Array(FFT_BINS * 4);
       this.fftTexture = new THREE.DataTexture(this._fftData, FFT_BINS, 1, THREE.RGBAFormat);
@@ -198,6 +203,8 @@
             gainNode.gain.value = Math.max(0, Math.min(1, Number(v) || 0));
           };
 
+          self._flushSampleQueue();
+
           self.compileNow();
 
           if (playBtn) {
@@ -225,6 +232,35 @@
             playBtn.addEventListener('click', function () { window.location.reload(); });
           }
         });
+    },
+
+    queueSample: function (name, url) {
+      if (!name || !url) return;
+      this._sampleQueue[name] = url;
+      if (this._engineReady) this._flushSampleQueue();
+    },
+
+    _flushSampleQueue: function () {
+      var names = Object.keys(this._sampleQueue);
+      for (var i = 0; i < names.length; i++) {
+        let name = names[i];
+        let url = this._sampleQueue[name];
+        if (!url) continue;
+        if (this._loadedSamples[name] || this._loadingSamples[name]) continue;
+
+        var self = this;
+        let absUrl = new URL(url, document.location.href).href;
+        this._loadingSamples[name] = this._maxi.loadSample(name, absUrl, true)
+          .then(function () {
+            self._loadedSamples[name] = true;
+            delete self._loadingSamples[name];
+            self.requestCompile();
+          })
+          .catch(function (err) {
+            console.error('maxi-patch sample load failed:', name, err);
+            delete self._loadingSamples[name];
+          });
+      }
     },
 
     tick: function () {
@@ -755,6 +791,69 @@
       var fn = this.data.type === 'linexp' ? 'linexp' : 'linlin';
       var input = rp(this.el.sceneEl, this.data.input);
       return ['var ' + no(this.el.id) + ' = Maximilian.maxiMap.' + fn + '(' + input + ', ' + rp(this.el.sceneEl, this.data.inMin) + ', ' + rp(this.el.sceneEl, this.data.inMax) + ', ' + rp(this.el.sceneEl, this.data.outMin) + ', ' + rp(this.el.sceneEl, this.data.outMax) + ');'];
+    }
+  }));
+
+  AFRAME.registerComponent('maxi-sample', makeComp({
+    schema: {
+      name: { type: 'string', default: 'sample1' },
+      url: { type: 'string', default: '' },
+      mode: { type: 'string', default: 'oneshot' },
+      trigger: { type: 'string', default: '1' },
+      speed: { type: 'string', default: '1' },
+      offset: { type: 'string', default: '0' },
+      gain: { type: 'string', default: '1' }
+    },
+    onInit: function () {
+      var sceneEl = this.el && this.el.sceneEl;
+      var patch = sceneEl && sceneEl.systems ? sceneEl.systems['maxi-patch'] : null;
+      if (patch) patch.queueSample(this.data.name, this.data.url);
+    },
+    onUpdate: function () {
+      var sceneEl = this.el && this.el.sceneEl;
+      var patch = sceneEl && sceneEl.systems ? sceneEl.systems['maxi-patch'] : null;
+      if (patch) patch.queueSample(this.data.name, this.data.url);
+    },
+    getDeps: function () {
+      var deps = [];
+      ['trigger', 'speed', 'offset', 'gain'].forEach(function (k) {
+        if (isRef(this.data[k])) {
+          var id = getRefId(this.el.sceneEl, this.data[k]);
+          if (id) deps.push(id);
+        }
+      }, this);
+      return deps;
+    },
+    genDecls: function () {
+      var o = nv(this.el.id);
+      var name = JSON.stringify(this.data.name || 'sample1');
+      return [
+        'var ' + o + ' = new Maximilian.maxiSample();',
+        o + '.setSample(this.getSampleBuffer(' + name + '));'
+      ].join('\n');
+    },
+    genPlay: function () {
+      var o = nv(this.el.id);
+      var out = no(this.el.id);
+      var mode = (this.data.mode || 'oneshot').toLowerCase();
+      var trig = rp(this.el.sceneEl, this.data.trigger);
+      var speed = rp(this.el.sceneEl, this.data.speed);
+      var offset = rp(this.el.sceneEl, this.data.offset);
+      var body;
+
+      if (mode === 'loop') {
+        body = o + '.play(' + speed + ')';
+      } else if (mode === 'speed') {
+        body = o + '.playOnZXAtSpeed(' + trig + ', ' + speed + ')';
+      } else if (mode === 'offset') {
+        body = o + '.playOnZXAtSpeedFromOffset(' + trig + ', ' + speed + ', ' + offset + ')';
+      } else {
+        body = o + '.playOnZX(' + trig + ')';
+      }
+
+      return [
+        'var ' + out + ' = (' + o + '.isReady() ? (' + body + ') : 0.0) * ' + rp(this.el.sceneEl, this.data.gain) + ';'
+      ];
     }
   }));
 })();

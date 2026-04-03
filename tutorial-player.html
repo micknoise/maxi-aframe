@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tutorial Player</title>
+  <script src="./enable-threads.js"></script>
+  <script src="./maximilian.v.0.1.js"></script>
+  <script src="./aframe.min.js"></script>
+  <script src="./maxi-components.js?v=20260403b"></script>
+  <style>
+    body { margin: 0; background: #0d1219; color: #e6edf3; font-family: Menlo, Monaco, Consolas, monospace; }
+    #ui {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      z-index: 1000;
+      background: rgba(0,0,0,0.65);
+      border: 1px solid #2f3a46;
+      border-radius: 8px;
+      padding: 10px;
+      max-width: 520px;
+    }
+    a { color: #7dd3fc; }
+    .meta { font-size: 12px; opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="playButton">loading...</button>
+    <div id="title"></div>
+    <div id="desc" class="meta"></div>
+    <div class="meta"><a href="./tutorial-catalog.html">All Tutorials</a> | <a href="./index.html">Home</a></div>
+  </div>
+
+  <a-scene id="scene" maxi-patch="output: #out" renderer="antialias: true">
+    <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
+    <a-sphere position="0 1.4 -3" radius="0.9" color="#9ece6a" animation="property: rotation; to: 360 360 0; loop: true; dur: 7000"></a-sphere>
+    <a-plane position="0 0 -3" rotation="-90 0 0" width="8" height="8" color="#1f2937"></a-plane>
+    <a-sky color="#0d1219"></a-sky>
+  </a-scene>
+
+  <script>
+    var SAMPLE_URL = 'https://raw.githubusercontent.com/micknoise/Maximilian/master/cpp/commandline/beat2.wav';
+
+    var TUTORIALS = {
+      1: { title: '1. TestTone', desc: 'Single 440Hz sine wave.', nodes: [
+        { id: 'osc', comp: 'maxi-osc', val: 'type: sinewave; freq: 440' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #osc; gain: 0.2' }
+      ]},
+      2: { title: '2. TwoTones', desc: 'Two beating sine waves.', nodes: [
+        { id: 'a', comp: 'maxi-osc', val: 'type: sinewave; freq: 440' },
+        { id: 'b', comp: 'maxi-osc', val: 'type: sinewave; freq: 441' },
+        { id: 'mix', comp: 'maxi-add', val: 'a: #a; b: #b; mix: 0.5' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #mix; gain: 0.2' }
+      ]},
+      3: { title: '3. AM1', desc: 'AM via carrier multiplied by mapped modulator.', nodes: [
+        { id: 'car', comp: 'maxi-osc', val: 'type: sinewave; freq: 440' },
+        { id: 'mod', comp: 'maxi-osc', val: 'type: sinewave; freq: 2' },
+        { id: 'moda', comp: 'maxi-map', val: 'type: linlin; input: #mod; inMin: -1; inMax: 1; outMin: 0; outMax: 1' },
+        { id: 'am', comp: 'maxi-gain', val: 'input: #car; gain: #moda' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #am; gain: 0.25' }
+      ]},
+      4: { title: '4. AM2', desc: 'Faster AM variant.', nodes: [
+        { id: 'car', comp: 'maxi-osc', val: 'type: sinewave; freq: 330' },
+        { id: 'mod', comp: 'maxi-osc', val: 'type: sinewave; freq: 8' },
+        { id: 'moda', comp: 'maxi-map', val: 'type: linlin; input: #mod; inMin: -1; inMax: 1; outMin: 0.1; outMax: 1' },
+        { id: 'am', comp: 'maxi-gain', val: 'input: #car; gain: #moda' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #am; gain: 0.22' }
+      ]},
+      5: { title: '5. FM1', desc: 'Carrier with low-rate FM modulation.', nodes: [
+        { id: 'mod', comp: 'maxi-osc', val: 'type: sinewave; freq: 1; scale: 100; offset: 440' },
+        { id: 'car', comp: 'maxi-osc', val: 'type: sinewave; freq: #mod' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #car; gain: 0.2' }
+      ]},
+      6: { title: '6. FM2', desc: 'Brighter FM variant.', nodes: [
+        { id: 'mod', comp: 'maxi-osc', val: 'type: sinewave; freq: 4; scale: 220; offset: 220' },
+        { id: 'car', comp: 'maxi-osc', val: 'type: triangle; freq: #mod' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #car; gain: 0.18' }
+      ]},
+      7: { title: '7. Counting1 (adapted)', desc: 'Clocked envelope pulses.', nodes: [
+        { id: 'clk', comp: 'maxi-clock', val: 'tempo: 110; ticksPerBeat: 2' },
+        { id: 'src', comp: 'maxi-blep', val: 'type: saw; freq: 140' },
+        { id: 'env', comp: 'maxi-env', val: 'type: adsr; input: #src; trigger: #clk; attack: 5; decay: 60; sustain: 0.2; release: 80; holdtime: 128' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #env; gain: 0.2' }
+      ]},
+      8: { title: '8. Counting2/3/4 (adapted)', desc: 'Faster subdivision pattern.', nodes: [
+        { id: 'clk', comp: 'maxi-clock', val: 'tempo: 120; ticksPerBeat: 8' },
+        { id: 'src', comp: 'maxi-osc', val: 'type: square; freq: 220' },
+        { id: 'env', comp: 'maxi-env', val: 'type: adsr; input: #src; trigger: #clk; attack: 1; decay: 20; sustain: 0.1; release: 40; holdtime: 64' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #env; gain: 0.16' }
+      ]},
+      9: { title: '9. Envelopes1/2/3', desc: 'Envelope shaping examples.', nodes: [
+        { id: 'clk', comp: 'maxi-clock', val: 'tempo: 90; ticksPerBeat: 4' },
+        { id: 'src', comp: 'maxi-osc', val: 'type: sinewave; freq: 260' },
+        { id: 'env', comp: 'maxi-env', val: 'type: adsr; input: #src; trigger: #clk; attack: 30; decay: 120; sustain: 0.5; release: 300; holdtime: 1024' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #env; gain: 0.22' }
+      ]},
+      10: { title: '10. Filters', desc: 'SVF modulation with stable BLEP source.', nodes: [
+        { id: 'src', comp: 'maxi-blep', val: 'type: saw; freq: 110' },
+        { id: 'lfo', comp: 'maxi-osc', val: 'type: sinewave; freq: 0.09' },
+        { id: 'cut', comp: 'maxi-map', val: 'type: linlin; input: #lfo; inMin: -1; inMax: 1; outMin: 250; outMax: 2200' },
+        { id: 'filt', comp: 'maxi-svf', val: 'input: #src; cutoff: #cut; resonance: 0.85; lp: 1; hp: 0; bp: 0; notch: 0' },
+        { id: 'mix', comp: 'maxi-add', val: 'a: #src; b: #filt; mix: 0.8' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #mix; gain: 0.16' }
+      ]},
+      11: { title: '11. Mixing', desc: 'Layered oscillator mixing.', nodes: [
+        { id: 'o1', comp: 'maxi-osc', val: 'type: sinewave; freq: 110' },
+        { id: 'o2', comp: 'maxi-osc', val: 'type: triangle; freq: 220' },
+        { id: 'o3', comp: 'maxi-osc', val: 'type: square; freq: 330' },
+        { id: 'm12', comp: 'maxi-add', val: 'a: #o1; b: #o2; mix: 0.5' },
+        { id: 'mix', comp: 'maxi-add', val: 'a: #m12; b: #o3; mix: 0.33' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #mix; gain: 0.14' }
+      ]},
+      12: { title: '12. SamplePlayer', desc: 'Sample loading and playback.', nodes: [
+        { id: 'sam', comp: 'maxi-sample', val: 'name: beat; url: ' + SAMPLE_URL + '; mode: loop; speed: 1; gain: 0.9' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #sam; gain: 0.25' }
+      ]},
+      13: { title: '13. Advanced-Filters (adapted)', desc: 'SVF blend outputs.', nodes: [
+        { id: 'src', comp: 'maxi-blep', val: 'type: saw; freq: 180' },
+        { id: 'lfo', comp: 'maxi-osc', val: 'type: sinewave; freq: 0.07' },
+        { id: 'cut', comp: 'maxi-map', val: 'type: linlin; input: #lfo; inMin: -1; inMax: 1; outMin: 180; outMax: 3400' },
+        { id: 'filt', comp: 'maxi-svf', val: 'input: #src; cutoff: #cut; resonance: 0.9; lp: 0.7; hp: 0.1; bp: 0.4; notch: 0.0' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #filt; gain: 0.18' }
+      ]},
+      14: { title: '14. monosynth (adapted)', desc: 'Monosynth-style chain.', nodes: [
+        { id: 'clk', comp: 'maxi-clock', val: 'tempo: 95; ticksPerBeat: 2' },
+        { id: 'src', comp: 'maxi-blep', val: 'type: saw; freq: 160' },
+        { id: 'env', comp: 'maxi-env', val: 'type: adsr; input: #src; trigger: #clk; attack: 10; decay: 80; sustain: 0.4; release: 120; holdtime: 256' },
+        { id: 'filt', comp: 'maxi-svf', val: 'input: #env; cutoff: 800; resonance: 0.7; lp: 1; hp: 0; bp: 0; notch: 0' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #filt; gain: 0.2' }
+      ]},
+      15: { title: '15. polysynth (adapted)', desc: 'Three-voice oscillator stack.', nodes: [
+        { id: 'a', comp: 'maxi-blep', val: 'type: saw; freq: 220' },
+        { id: 'b', comp: 'maxi-blep', val: 'type: saw; freq: 277' },
+        { id: 'c', comp: 'maxi-blep', val: 'type: saw; freq: 330' },
+        { id: 'm1', comp: 'maxi-add', val: 'a: #a; b: #b; mix: 0.5' },
+        { id: 'm2', comp: 'maxi-add', val: 'a: #m1; b: #c; mix: 0.5' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #m2; gain: 0.12' }
+      ]},
+      16: { title: '16. Replicant (adapted)', desc: 'Delay feedback texture.', nodes: [
+        { id: 'src', comp: 'maxi-osc', val: 'type: impulse; freq: 2' },
+        { id: 'dl', comp: 'maxi-delay', val: 'input: #src; delay: 22050; feedback: 0.82' },
+        { id: 'mix', comp: 'maxi-add', val: 'a: #src; b: #dl; mix: 0.9' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #mix; gain: 0.3' }
+      ]},
+      17: { title: '17. Compressor (adapted)', desc: 'Soft clipping as dynamics proxy.', nodes: [
+        { id: 'src', comp: 'maxi-blep', val: 'type: square; freq: 120; scale: 1.2' },
+        { id: 'drv', comp: 'maxi-distortion', val: 'type: softclip; input: #src; amount: 1' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #drv; gain: 0.2' }
+      ]},
+      18: { title: '18. DrumMachine (adapted)', desc: 'Clock-triggered sample one-shots.', nodes: [
+        { id: 'clk', comp: 'maxi-clock', val: 'tempo: 110; ticksPerBeat: 4' },
+        { id: 'sam', comp: 'maxi-sample', val: 'name: beat; url: ' + SAMPLE_URL + '; mode: oneshot; trigger: #clk; gain: 1' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #sam; gain: 0.22' }
+      ]},
+      19: { title: '19. Enveloping2 (adapted)', desc: 'AR envelope with clock trigger.', nodes: [
+        { id: 'clk', comp: 'maxi-clock', val: 'tempo: 75; ticksPerBeat: 2' },
+        { id: 'src', comp: 'maxi-osc', val: 'type: triangle; freq: 200' },
+        { id: 'env', comp: 'maxi-env', val: 'type: ar; input: #src; trigger: #clk; attack: 25; release: 200' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #env; gain: 0.25' }
+      ]},
+      20: { title: '20. FFT example (adapted)', desc: 'Audio source with spectrum-ready scene.', nodes: [
+        { id: 'src', comp: 'maxi-osc', val: 'type: noise; freq: 1' },
+        { id: 'f', comp: 'maxi-filter', val: 'type: lopass; input: #src; cutoff: 1200' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #f; gain: 0.08' }
+      ]},
+      21: { title: '21. Recording (adapted)', desc: 'Recording tutorial placeholder with active source.', nodes: [
+        { id: 'src', comp: 'maxi-osc', val: 'type: sinewave; freq: 246' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #src; gain: 0.18' }
+      ]},
+      22: { title: '22. Analysis (adapted)', desc: 'Analysis tutorial placeholder with stable tone.', nodes: [
+        { id: 'src', comp: 'maxi-osc', val: 'type: sinewave; freq: 329' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #src; gain: 0.18' }
+      ]},
+      23: { title: '23. Chorus', desc: 'Chorus effect demo.', nodes: [
+        { id: 'src', comp: 'maxi-blep', val: 'type: saw; freq: 130' },
+        { id: 'fx', comp: 'maxi-chorus', val: 'input: #src; delayLength: 25; lfoSpeed: 0.7; lfoDepth: 0.7; mix: 0.7' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #fx; gain: 0.18' }
+      ]},
+      24: { title: '24. Flanger', desc: 'Flanger effect demo.', nodes: [
+        { id: 'src', comp: 'maxi-blep', val: 'type: saw; freq: 110' },
+        { id: 'fx', comp: 'maxi-flanger', val: 'input: #src; delayLength: 30; lfoSpeed: 0.5; lfoDepth: 0.8; mix: 0.85' },
+        { id: 'out', comp: 'maxi-gain', val: 'input: #fx; gain: 0.16' }
+      ]}
+    };
+
+    function pickTutorial() {
+      var qp = new URLSearchParams(window.location.search);
+      var id = Number(qp.get('id') || '1');
+      if (!TUTORIALS[id]) id = 1;
+      return { id: id, data: TUTORIALS[id] };
+    }
+
+    function addNode(scene, node) {
+      var el = document.createElement('a-entity');
+      el.setAttribute('id', node.id);
+      el.setAttribute(node.comp, node.val);
+      scene.appendChild(el);
+    }
+
+    var picked = pickTutorial();
+    var t = picked.data;
+    document.getElementById('title').textContent = t.title;
+    document.getElementById('desc').textContent = t.desc;
+
+    var scene = document.getElementById('scene');
+    for (var i = 0; i < t.nodes.length; i++) addNode(scene, t.nodes[i]);
+  </script>
+</body>
+</html>
