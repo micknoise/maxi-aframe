@@ -28,7 +28,7 @@
     <a-plane position="0 0 -3" rotation="-90 0 0" width="8" height="8" color="#1f2937"></a-plane>
     <a-sky color="#0d1219"></a-sky>
 
-    <a-entity id="mod" maxi-osc="type: sinewave; freq: 4; scale: 220; offset: 220"></a-entity>
+    <a-entity id="mod" maxi-osc="type: sinewave; freq: 3; scale: 5000; offset: 5000"></a-entity>
     <a-entity id="car" maxi-osc="type: triangle; freq: #mod"></a-entity>
     <a-entity id="out" maxi-gain="input: #car; gain: 0.18"></a-entity>
   </a-scene>
