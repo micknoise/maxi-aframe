@@ -902,10 +902,10 @@
 
   AFRAME.registerComponent('maxi-audio-deform', {
     schema: {
-      amount: { type: 'number', default: 0.55 },
-      speed: { type: 'number', default: 1.1 },
+      amount: { type: 'number', default: 1.2 },
+      speed: { type: 'number', default: 1.35 },
       bands: { type: 'int', default: 128 },
-      smoothing: { type: 'number', default: 0.82 }
+      smoothing: { type: 'number', default: 0.76 }
     },
 
     init: function () {
@@ -986,7 +986,9 @@
         }
 
         var wave = 0.5 + 0.5 * Math.sin(t + this._phase[i]);
-        var target = this.data.amount * (fft * 0.9 + rms * 1.2) * (0.35 + wave * 0.65);
+        // Stronger drive so deformation stays obvious even on quieter patches.
+        var energy = 0.08 + fft * 1.9 + rms * 4.2;
+        var target = this.data.amount * energy * (0.35 + wave * 0.95);
         var prev = this._smooth[i] || 0;
         var disp = prev * smoothA + target * (1 - smoothA);
         this._smooth[i] = disp;
