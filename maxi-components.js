@@ -288,13 +288,28 @@
       this._rmsSmooth = this._rmsSmooth * 0.88 + rawRms * 0.12;
       window.jazzRMS = this._rmsSmooth;
 
-      var inv = peak > 0.000001 ? 1 / peak : 0;
-      for (var k = 0; k < FFT_BINS; k++) {
-        var val = Math.min(255, Math.floor(this._linArray[k] * inv * 255));
-        this._fftData[k * 4] = val;
-        this._fftData[k * 4 + 1] = val;
-        this._fftData[k * 4 + 2] = val;
-        this._fftData[k * 4 + 3] = 255;
+      if (peak > 0.000001) {
+        var logMin = Math.log2(20);
+        var logMax = Math.log2(8000);
+        var inv = 1 / peak;
+        var sampleRate = this._audioCtx ? this._audioCtx.sampleRate : 48000;
+        for (var k = 0; k < FFT_BINS; k++) {
+          var t = k / (FFT_BINS - 1);
+          var freq = Math.pow(2, logMin + t * (logMax - logMin));
+          var binIdx = Math.min(Math.floor(freq * FFT_BINS * 2 / sampleRate), FFT_BINS - 1);
+          var val = Math.min(255, Math.floor(this._linArray[binIdx] * inv * 255));
+          this._fftData[k * 4] = val;
+          this._fftData[k * 4 + 1] = val;
+          this._fftData[k * 4 + 2] = val;
+          this._fftData[k * 4 + 3] = 255;
+        }
+      } else {
+        for (var z = 0; z < FFT_BINS; z++) {
+          this._fftData[z * 4] = 0;
+          this._fftData[z * 4 + 1] = 0;
+          this._fftData[z * 4 + 2] = 0;
+          this._fftData[z * 4 + 3] = 255;
+        }
       }
       this.fftTexture.needsUpdate = true;
     },
@@ -901,11 +916,11 @@
   });
 
   AFRAME.registerComponent('maxi-audio-deform', {
-    // Rows are auto-detected from the geometry (unique Y-value clusters = rows).
-    // FFT bins are evenly mapped: row 0 → bin 0, row N-1 → bin (bins-1).
-    // Works on any A-Frame geometry — spheres, planes, cylinders, custom meshes.
+    // Deforms vertices along normals using FFT sampled by UV coordinate,
+    // matching the reference jazz-sphere behaviour from v01-aframe.
     schema: {
       amount:       { type: 'number', default: 1.7 },
+      fftUV:        { type: 'number', default: 0.0 },
       attack:       { type: 'number', default: 0.14 },
       release:      { type: 'number', default: 0.3 },
       gate:         { type: 'number', default: 0.015 },
@@ -917,11 +932,10 @@
       this._mesh     = null;
       this._posAttr  = null;
       this._normAttr = null;
+      this._uvAttr   = null;
       this._basePos  = null;
       this._baseNorm = null;
-      this._vertexRow = null;
-      this._numRows  = 0;
-      this._rowEnv   = null;
+      this._binEnv   = null;
       this._bindMesh();
     },
 
@@ -949,104 +963,55 @@
       this._mesh     = mesh;
       this._posAttr  = mesh.geometry.attributes.position;
       this._normAttr = mesh.geometry.attributes.normal || null;
+      this._uvAttr   = mesh.geometry.attributes.uv || null;
       this._basePos  = new Float32Array(this._posAttr.array);
       this._baseNorm = this._normAttr ? new Float32Array(this._normAttr.array) : null;
-
-      var count = this._posAttr.count;
-
-      // --- Detect rows by clustering unique Y values from the geometry ---
-      // Each unique Y level = one row; FFT bins map evenly across all rows.
-      var yMin = Infinity, yMax = -Infinity;
-      for (var i = 0; i < count; i++) {
-        var y = this._basePos[i * 3 + 1];
-        if (y < yMin) yMin = y;
-        if (y > yMax) yMax = y;
-      }
-
-      var eps = (yMax - yMin) * 0.001 + 1e-6;
-
-      // Collect and sort Y values, then de-dup within epsilon.
-      var ySorted = new Float32Array(count);
-      for (var j = 0; j < count; j++) ySorted[j] = this._basePos[j * 3 + 1];
-      ySorted = Array.from(ySorted).sort(function (a, b) { return a - b; });
-
-      var rowCenters = [ySorted[0]];
-      for (var k = 1; k < ySorted.length; k++) {
-        if (ySorted[k] - rowCenters[rowCenters.length - 1] > eps) {
-          rowCenters.push(ySorted[k]);
-        }
-      }
-
-      var numRows = rowCenters.length;
-      this._numRows = numRows;
-      this._rowEnv  = new Float32Array(numRows);
-
-      // Assign each vertex its row by nearest Y center (binary search).
-      this._vertexRow = new Uint16Array(count);
-      for (var vi = 0; vi < count; vi++) {
-        var vy = this._basePos[vi * 3 + 1];
-        var lo = 0, hi = numRows - 1;
-        while (lo < hi) {
-          var mid = (lo + hi) >> 1;
-          if (rowCenters[mid] < vy) lo = mid + 1; else hi = mid;
-        }
-        if (lo > 0 && Math.abs(rowCenters[lo - 1] - vy) < Math.abs(rowCenters[lo] - vy)) lo--;
-        this._vertexRow[vi] = lo;
-      }
     },
 
     tick: function () {
-      if (!this._posAttr || !this._numRows) {
+      if (!this._posAttr) {
         this._bindMesh();
-        if (!this._posAttr || !this._numRows) return;
+        if (!this._posAttr) return;
       }
 
       var tex      = window.jazzFFTTexture;
       var binsData = tex && tex.image ? tex.image.data : null;
       var bins     = binsData ? Math.max(1, Math.floor(binsData.length / 4)) : 0;
-      var numRows  = this._numRows;
       var attackA  = Math.min(0.995, Math.max(0.0, this.data.attack));
       var releaseA = Math.min(0.995, Math.max(0.0, this.data.release));
       var gate     = Math.min(0.9,   Math.max(0.0, this.data.gate));
       var fftPwr   = Math.max(0.1,   this.data.fftPower);
       var bSmooth  = Math.min(0.95,  Math.max(0.0, this.data.binSmoothing));
+      var fftUVMix = Math.min(1, Math.max(0, this.data.fftUV));
 
-      // Update per-row envelope from FFT.
-      // Each row consumes a contiguous FFT bin range so the full spectrum is used
-      // even when there are fewer geometry rows than FFT bins.
-      for (var row = 0; row < numRows; row++) {
+      if (!this._binEnv || this._binEnv.length !== bins) {
+        this._binEnv = new Float32Array(bins || 1);
+      }
+
+      // Smooth per-bin FFT values, then sample those bins per-vertex via UV.
+      for (var bin = 0; bin < bins; bin++) {
         var raw = 0;
         if (bins > 0) {
-          var b0 = Math.floor((row * bins) / numRows);
-          var b1 = Math.floor(((row + 1) * bins) / numRows) - 1;
-          if (b1 < b0) b1 = b0;
-          if (b0 < 0) b0 = 0;
-          if (b1 > bins - 1) b1 = bins - 1;
-
-          var sum = 0;
-          var n = 0;
-          for (var b = b0; b <= b1; b++) {
-            sum += binsData[b * 4] / 255;
-            n++;
-          }
-          var cv = n > 0 ? (sum / n) : 0;
-          var lv = b0 > 0        ? binsData[(b0 - 1) * 4] / 255 : cv;
-          var rv = b1 < bins - 1 ? binsData[(b1 + 1) * 4] / 255 : cv;
+          var cv = binsData[bin * 4] / 255;
+          var lv = bin > 0        ? binsData[(bin - 1) * 4] / 255 : cv;
+          var rv = bin < bins - 1 ? binsData[(bin + 1) * 4] / 255 : cv;
           raw = cv * (1 - bSmooth) + ((lv + rv) * 0.5) * bSmooth;
         }
         if (raw <= gate) raw = 0;
         else raw = (raw - gate) / (1 - gate);
         raw = Math.pow(Math.max(0, raw), fftPwr);
 
-        var prev = this._rowEnv[row] || 0;
+        var prev = this._binEnv[bin] || 0;
         var a    = raw >= prev ? attackA : releaseA;
-        this._rowEnv[row] = prev * a + raw * (1 - a);
+        this._binEnv[bin] = prev * a + raw * (1 - a);
       }
 
-      // Apply displacement along vertex normal (or normalised position fallback).
+      // Apply displacement along vertex normal (or normalised position fallback),
+      // sampling FFT using UV mapping like the reference jazz-sphere shader.
       var arr   = this._posAttr.array;
       var count = this._posAttr.count;
       var amt   = this.data.amount;
+      var uvArr = this._uvAttr ? this._uvAttr.array : null;
 
       for (var i = 0; i < count; i++) {
         var i3 = i * 3;
@@ -1059,7 +1024,20 @@
           if (len < 1e-6) { nx = 0; ny = 1; nz = 0; }
           else { nx = bx / len; ny = by / len; nz = bz / len; }
         }
-        var disp = amt * (this._rowEnv[this._vertexRow[i]] || 0);
+
+        var uvCoord = count > 1 ? (i / (count - 1)) : 0;
+        if (uvArr) {
+          var i2 = i * 2;
+          var ux = uvArr[i2];
+          var uy = uvArr[i2 + 1];
+          uvCoord = ux * (1 - fftUVMix) + uy * fftUVMix;
+        }
+        if (!isFinite(uvCoord)) uvCoord = 0;
+        if (uvCoord < 0) uvCoord = 0;
+        else if (uvCoord > 1) uvCoord = 1;
+        var binIdx = bins > 0 ? Math.min(bins - 1, Math.floor(uvCoord * (bins - 1))) : 0;
+
+        var disp = amt * (this._binEnv[binIdx] || 0);
         arr[i3]     = bx + nx * disp;
         arr[i3 + 1] = by + ny * disp;
         arr[i3 + 2] = bz + nz * disp;
