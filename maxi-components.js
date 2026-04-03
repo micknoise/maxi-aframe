@@ -936,6 +936,7 @@
       this._basePos  = null;
       this._baseNorm = null;
       this._binEnv   = null;
+      this._binBase  = null;
       this._bindMesh();
     },
 
@@ -987,6 +988,9 @@
       if (!this._binEnv || this._binEnv.length !== bins) {
         this._binEnv = new Float32Array(bins || 1);
       }
+      if (!this._binBase || this._binBase.length !== bins) {
+        this._binBase = new Float32Array(bins || 1);
+      }
 
       // Smooth per-bin FFT values, then sample those bins per-vertex via UV.
       for (var bin = 0; bin < bins; bin++) {
@@ -1000,6 +1004,13 @@
         if (raw <= gate) raw = 0;
         else raw = (raw - gate) / (1 - gate);
         raw = Math.pow(Math.max(0, raw), fftPwr);
+
+        // Remove persistent per-bin floor so low-frequency bins do not get stuck.
+        var basePrev = this._binBase[bin] || 0;
+        var baseA = raw > basePrev ? 0.03 : 0.002;
+        var base = basePrev * (1 - baseA) + raw * baseA;
+        this._binBase[bin] = base;
+        raw = Math.max(0, raw - base * 0.9);
 
         var prev = this._binEnv[bin] || 0;
         var a    = raw >= prev ? attackA : releaseA;
