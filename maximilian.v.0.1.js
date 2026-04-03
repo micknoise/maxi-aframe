@@ -132,7 +132,6 @@ var initAudioEngine = (origin = document.location.origin+"/libs")=>{
 
           maxi.setAudioCode = async (location,name)=>{
             const executeCode = (name, userCode)=> {
-              console.log(name, typeof(userCode), userCode)
               userCode = userCode.replace(/Maximilian/g, "Module");
               //Mimic site adds in some stuff for consoles, causes errors, remove it
               userCode = userCode.replace(/parent.postMessage\(\[\"console\".*\"\*\"\)/g, "");

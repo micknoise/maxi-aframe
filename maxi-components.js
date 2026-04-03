@@ -250,7 +250,10 @@
 
         var self = this;
         let absUrl = new URL(url, document.location.href).href;
-        this._loadingSamples[name] = this._maxi.loadSample(name, absUrl, true)
+  // maxi-processor normalizes sample names by stripping the last 4 chars.
+  // Use the historic "----" suffix so "beat----" becomes "beat" in buffer keys.
+  let loadName = name.endsWith('----') ? name : (name + '----');
+  this._loadingSamples[name] = this._maxi.loadSample(loadName, absUrl, true)
           .then(function () {
             self._loadedSamples[name] = true;
             delete self._loadingSamples[name];
