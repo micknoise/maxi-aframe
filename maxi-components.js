@@ -1011,14 +1011,27 @@
       var fftPwr   = Math.max(0.1,   this.data.fftPower);
       var bSmooth  = Math.min(0.95,  Math.max(0.0, this.data.binSmoothing));
 
-      // Update per-row envelope from FFT — one bin per row, evenly spread.
+      // Update per-row envelope from FFT.
+      // Each row consumes a contiguous FFT bin range so the full spectrum is used
+      // even when there are fewer geometry rows than FFT bins.
       for (var row = 0; row < numRows; row++) {
-        var bin = bins > 0 ? Math.min(bins - 1, Math.floor((row / numRows) * bins)) : 0;
         var raw = 0;
         if (bins > 0) {
-          var cv = binsData[bin * 4] / 255;
-          var lv = bin > 0            ? binsData[(bin - 1) * 4] / 255 : cv;
-          var rv = bin < bins - 1     ? binsData[(bin + 1) * 4] / 255 : cv;
+          var b0 = Math.floor((row * bins) / numRows);
+          var b1 = Math.floor(((row + 1) * bins) / numRows) - 1;
+          if (b1 < b0) b1 = b0;
+          if (b0 < 0) b0 = 0;
+          if (b1 > bins - 1) b1 = bins - 1;
+
+          var sum = 0;
+          var n = 0;
+          for (var b = b0; b <= b1; b++) {
+            sum += binsData[b * 4] / 255;
+            n++;
+          }
+          var cv = n > 0 ? (sum / n) : 0;
+          var lv = b0 > 0        ? binsData[(b0 - 1) * 4] / 255 : cv;
+          var rv = b1 < bins - 1 ? binsData[(b1 + 1) * 4] / 255 : cv;
           raw = cv * (1 - bSmooth) + ((lv + rv) * 0.5) * bSmooth;
         }
         if (raw <= gate) raw = 0;
