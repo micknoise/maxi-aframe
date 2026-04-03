@@ -964,6 +964,7 @@
 
       var patched = original.clone();
       patched.userData._maxiAudioDeformPatched = true;
+      patched.defines = Object.assign({}, patched.defines || {}, { USE_UV: '' });
 
       var priorOnBeforeCompile = patched.onBeforeCompile;
       patched.onBeforeCompile = function (shader, renderer) {
@@ -982,16 +983,15 @@
           ].join('\n'))
           .replace('#include <begin_vertex>', [
             'vec3 transformed = vec3(position);',
-            'float uvCoord = 0.0;',
-            '#ifdef USE_UV',
-            '  uvCoord = mix(uv.x, uv.y, clamp(uFFTUV, 0.0, 1.0));',
-            '#else',
-            '  uvCoord = fract((position.x + position.y + position.z) * 0.01);',
-            '#endif',
+            'float uvCoord = mix(uv.x, uv.y, clamp(uFFTUV, 0.0, 1.0));',
             'float wrapped = fract(uvCoord * 2.0);',
             'float mirrored = 1.0 - abs(wrapped * 2.0 - 1.0);',
             'float mag = texture2D(uFFT, vec2(mirrored, 0.5)).r;',
-            'transformed += normalize(objectNormal) * mag * uDeform;'
+            'vec3 maxiN = normalize(position);',
+            '#ifdef USE_NORMAL',
+            '  maxiN = normalize(normal);',
+            '#endif',
+            'transformed += maxiN * mag * uDeform;'
           ].join('\n'));
 
         this.userData._maxiShader = shader;
