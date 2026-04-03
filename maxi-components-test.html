@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Maxi Components MVP Test</title>
+  <script src="./enable-threads.js"></script>
+  <script src="./maximilian.v.0.1.js"></script>
+  <script src="./aframe.min.js"></script>
+  <script src="./maxi-components.js"></script>
+  <style>
+    body { margin: 0; background: #0f1115; color: #e8ecf1; font-family: monospace; }
+    #ui {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      z-index: 1000;
+      background: rgba(0,0,0,0.6);
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    button { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <button id="playButton">loading...</button>
+    <div>MVP patch test: clock -> env -> gain</div>
+  </div>
+
+  <a-scene maxi-patch="output: #out" renderer="antialias: true">
+    <a-entity id="camera" camera="userHeight: 0" position="0 1.6 4" look-controls></a-entity>
+
+    <a-entity id="clock" maxi-clock="tempo: 100; ticksPerBeat: 4"></a-entity>
+    <a-entity id="lfo" maxi-osc="type: sinewave; freq: 0.08; scale: 220; offset: 330"></a-entity>
+    <a-entity id="osc" maxi-osc="type: sinewave; freq: #lfo"></a-entity>
+    <a-entity id="filt" maxi-filter="type: lores; input: #osc; cutoff: 900; resonance: 6"></a-entity>
+    <a-entity id="env" maxi-env="type: adsr; input: #filt; trigger: #clock; attack: 5; decay: 50; sustain: 0.2; release: 180; holdtime: 1024"></a-entity>
+    <a-entity id="out" maxi-gain="input: #env; gain: 0.12"></a-entity>
+
+    <a-box position="0 1 -2" rotation="0 45 0" color="#4CC3D9" animation="property: rotation; to: 0 405 0; loop: true; dur: 9000"></a-box>
+    <a-plane position="0 0 -3" rotation="-90 0 0" width="7" height="7" color="#202734"></a-plane>
+    <a-sky color="#10151f"></a-sky>
+  </a-scene>
+</body>
+</html>
